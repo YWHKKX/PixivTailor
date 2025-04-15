@@ -7,7 +7,9 @@ import (
 )
 
 var Global_Root string = "https://www.pixiv.net"
-var Global_Search string = "https://www.pixiv.net/ajax/search/artworks"
+var Global_Search_Tag string = "https://www.pixiv.net/ajax/search/artworks"
+var Global_User string = "https://www.pixiv.net/ajax/user"
+var Global_Illust string = "https://www.pixiv.net/ajax/illust"
 var Global_Artworks string = "https://www.pixiv.net/artworks"
 
 func makeRequest(target, cookie, agent, accept string) *http.Request {

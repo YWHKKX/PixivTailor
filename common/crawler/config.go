@@ -6,7 +6,17 @@ import (
 	"time"
 )
 
+// pixiv api文档: https://github.com/daydreamer-json/pixiv-ajax-api-docs
+
+type ConfigType int
+
+const (
+	SEARCH_BY_TAG ConfigType = iota
+	SEARCH_BY_USER
+)
+
 type Mode string
+type Order string
 
 const (
 	MODE_SAFE Mode = "safe"
@@ -14,15 +24,15 @@ const (
 	MODE_ALL  Mode = "all"
 )
 
-type Order string
-
 const (
 	ORDER_POPULAR_D Order = "popular_d"
 	ORDER_DATE_D    Order = "date_d"
 )
 
 type config struct {
+	configType            ConfigType
 	tag                   string
+	user                  int
 	order                 Order
 	mode                  Mode
 	cookie, agent, accept string
@@ -30,17 +40,33 @@ type config struct {
 	delay                 time.Duration
 }
 
-func InitConfig(tag string, order Order, mode Mode, savePaths ...string) config {
+// https://www.pixiv.net/ajax/search/artworks/{tag}?word={tag}&order={order}&mode={mode}&p=1&s_mode=s_tag_full&type={mode}&lang=zh
+func InitTagConfig(tag string, order Order, mode Mode, savePaths ...string) config {
 	currentPath, _ := os.Getwd()
 	savePath := filepath.Join(currentPath, "images")
 	if len(savePaths) > 0 {
 		savePath = savePaths[0]
 	}
 	return config{
-		tag:      tag,
-		order:    order,
-		mode:     mode,
-		savePath: savePath,
+		configType: SEARCH_BY_TAG,
+		tag:        tag,
+		order:      order,
+		mode:       mode,
+		savePath:   savePath,
+	}
+}
+
+// https://www.pixiv.net/ajax/user/{userid}/works/latest
+func InitUserConfig(user int, savePaths ...string) config {
+	currentPath, _ := os.Getwd()
+	savePath := filepath.Join(currentPath, "images")
+	if len(savePaths) > 0 {
+		savePath = savePaths[0]
+	}
+	return config{
+		configType: SEARCH_BY_USER,
+		user:       user,
+		savePath:   savePath,
 	}
 }
 
