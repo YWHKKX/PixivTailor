@@ -50,7 +50,7 @@ func formatBytes(b int64) string {
 
 // https://i.pximg.net/img-master/img/{time}/{illustID}_p{index}_master1200.jpg
 func Download(id, target string, index int, config config) bool {
-	req := makeRequest(target, config.cookie, config.agent, config.accept)
+	req := makeRequest(target, config.GetCookie(), config.GetAgent(), config.GetAccept())
 
 	proxyURL, _ := url.Parse("http://127.0.0.1:7890")
 	client := &http.Client{
@@ -59,15 +59,28 @@ func Download(id, target string, index int, config config) bool {
 		},
 	}
 
-	savePath := filepath.Join(config.GetSavePath(), id)
-	saveImagePath := filepath.Join(savePath, fmt.Sprintf("image_%d.jpg", index))
-	if _, err := os.Stat(saveImagePath); err == nil {
-		utils.Warnf("File already exists: %s", saveImagePath)
-		return false
+	var savePath, saveImagePath string
+
+	switch config.GetConfigType() {
+	case SEARCH_BY_TAG:
+		savePath = filepath.Join(config.GetSavePath(), config.GetTag())
+		saveImagePath = filepath.Join(savePath, fmt.Sprintf("image_%s_%d.jpg", id, index))
+		if _, err := os.Stat(saveImagePath); err == nil {
+			utils.Warnf("File already exists: %s", saveImagePath)
+			return true
+		}
+	case SEARCH_BY_USER:
+		savePath = filepath.Join(config.GetSavePath(), id)
+		saveImagePath = filepath.Join(savePath, fmt.Sprintf("image_%d.jpg", index))
+		if _, err := os.Stat(saveImagePath); err == nil {
+			utils.Warnf("File already exists: %s", saveImagePath)
+			return true
+		}
+	default:
+
 	}
 
 	utils.Infof("Try download artworks: %s", target)
-
 	if delay := config.GetDelay(); delay > 0 {
 		time.Sleep(delay)
 	}
@@ -84,6 +97,10 @@ func Download(id, target string, index int, config config) bool {
 	defer res.Body.Close()
 
 	fileSize := res.ContentLength
+	if fileSize <= 0 {
+		utils.Errorf("File size <= 0, Possibly a request error")
+		return false
+	}
 	progress := &progressWriter{
 		total:   fileSize,
 		written: 0,

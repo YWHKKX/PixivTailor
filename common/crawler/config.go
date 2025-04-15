@@ -29,15 +29,28 @@ const (
 	ORDER_DATE_D    Order = "date_d"
 )
 
-type config struct {
-	configType            ConfigType
-	tag                   string
-	user                  int
-	order                 Order
-	mode                  Mode
+type searchConfig struct {
+	tag   string
+	user  int
+	order Order
+	mode  Mode
+}
+
+type requestConfig struct {
 	cookie, agent, accept string
-	savePath              string
-	delay                 time.Duration
+}
+
+type downloadConfig struct {
+	savePath string
+	delay    time.Duration
+	limit    int
+}
+
+type config struct {
+	configType     ConfigType
+	searchConfig   searchConfig
+	requestConfig  requestConfig
+	downloadConfig downloadConfig
 }
 
 // https://www.pixiv.net/ajax/search/artworks/{tag}?word={tag}&order={order}&mode={mode}&p=1&s_mode=s_tag_full&type={mode}&lang=zh
@@ -49,10 +62,14 @@ func InitTagConfig(tag string, order Order, mode Mode, savePaths ...string) conf
 	}
 	return config{
 		configType: SEARCH_BY_TAG,
-		tag:        tag,
-		order:      order,
-		mode:       mode,
-		savePath:   savePath,
+		searchConfig: searchConfig{
+			tag:   tag,
+			order: order,
+			mode:  mode,
+		},
+		downloadConfig: downloadConfig{
+			savePath: savePath,
+		},
 	}
 }
 
@@ -65,55 +82,82 @@ func InitUserConfig(user int, savePaths ...string) config {
 	}
 	return config{
 		configType: SEARCH_BY_USER,
-		user:       user,
-		savePath:   savePath,
+		searchConfig: searchConfig{
+			user: user,
+		},
+		downloadConfig: downloadConfig{
+			savePath: savePath,
+		},
 	}
 }
 
 func (c *config) GetTag() string {
-	return c.tag
+	return c.searchConfig.tag
 }
 
 func (c *config) SetTag(tag string) {
-	c.tag = tag
+	c.searchConfig.tag = tag
+}
+
+func (c *config) GetOrder() Order {
+	return c.searchConfig.order
+}
+
+func (c *config) GetMode() Mode {
+	return c.searchConfig.mode
+}
+func (c *config) getUser() int {
+	return c.searchConfig.user
 }
 
 func (c *config) GetCookie() string {
-	return c.cookie
+	return c.requestConfig.cookie
 }
 
 func (c *config) SetCookie(cookie string) {
-	c.cookie = cookie
+	c.requestConfig.cookie = cookie
 }
 
 func (c *config) GetAgent() string {
-	return c.agent
+	return c.requestConfig.agent
 }
 
 func (c *config) SetAgent(agent string) {
-	c.agent = agent
+	c.requestConfig.agent = agent
 }
 
 func (c *config) GetAccept() string {
-	return c.accept
+	return c.requestConfig.accept
 }
 
 func (c *config) SetAccept(accept string) {
-	c.accept = accept
+	c.requestConfig.accept = accept
 }
 
 func (c *config) GetSavePath() string {
-	return c.savePath
+	return c.downloadConfig.savePath
 }
 
 func (c *config) SetSavePath(savePath string) {
-	c.savePath = savePath
+	c.downloadConfig.savePath = savePath
+}
+
+func (c *config) GetLimit() int {
+	return c.downloadConfig.limit
+}
+
+func (c *config) SetLimit(limit int) {
+	c.downloadConfig.limit = limit
 }
 
 func (c *config) GetDelay() time.Duration {
-	return c.delay
+	return c.downloadConfig.delay
 }
 
 func (c *config) SetDelay(delay time.Duration) {
-	c.delay = delay
+	c.downloadConfig.delay = delay
+}
+
+func (c *config) GetConfigType() ConfigType {
+	return c.configType
 }

@@ -68,7 +68,7 @@ func GetImageUrl(id string, config config) []string {
 	var ret []string
 
 	target := fmt.Sprintf("%s/%s/pages", Global_Illust, id)
-	req := makeRequest(target, config.cookie, config.agent, config.accept)
+	req := makeRequest(target, config.GetCookie(), config.GetAgent(), config.GetAccept())
 
 	proxyURL, _ := url.Parse("http://127.0.0.1:7890")
 	client := &http.Client{
@@ -105,7 +105,12 @@ func GetMangasTag(input string, config config, isDebug bool) (ret []*Manga) {
 		return
 	}
 
-	for _, d := range resp.Body.IllustManga.Data {
+	for index, d := range resp.Body.IllustManga.Data {
+		if index >= config.GetLimit() && config.GetLimit() != 0 {
+			utils.Infof("Limit reached: %d", config.GetLimit())
+			break
+		}
+
 		urls := GetImageUrl(d.ID, config)
 		ret = append(ret, NewManga(d.Title, d.ID, urls))
 		if isDebug {
@@ -126,7 +131,14 @@ func GetMangaUser(input string, config config, isDebug bool) (ret []*Manga) {
 		return
 	}
 
+	index := 0
 	for i, d := range resp.Body.Illusts {
+		if index >= config.GetLimit() && config.GetLimit() != 0 {
+			utils.Infof("Limit reached: %d", config.GetLimit())
+			break
+		}
+		index++
+
 		urls := GetImageUrl(i, config)
 		ret = append(ret, NewManga(d.Title, i, urls))
 		if isDebug {
@@ -147,7 +159,7 @@ func Collector(config config) []*Manga {
 	var ret []*Manga
 
 	getBody := func(target string) []byte {
-		req := makeRequest(target, config.cookie, config.agent, config.accept)
+		req := makeRequest(target, config.GetCookie(), config.GetAgent(), config.GetAccept())
 
 		proxyURL, _ := url.Parse("http://127.0.0.1:7890")
 		client := &http.Client{
@@ -172,14 +184,14 @@ func Collector(config config) []*Manga {
 		return utf8Body
 	}
 
-	switch config.configType {
+	switch config.GetConfigType() {
 	case SEARCH_BY_TAG:
 		target := fmt.Sprintf("%s/%s?word=%s&order=%s&mode=%s&p=1&s_mode=s_tag_full&type=%s&lang=zh",
-			Global_Search_Tag, config.tag, config.tag, config.order, config.mode, config.mode)
+			Global_Search_Tag, config.GetTag(), config.GetTag(), config.GetTag(), config.GetMode(), config.GetMode())
 		ret = GetMangasTag(string(getBody(target)), config, true)
 	case SEARCH_BY_USER:
 		target := fmt.Sprintf("%s/%d/works/latest",
-			Global_User, config.user)
+			Global_User, config.getUser())
 		ret = GetMangaUser(string(getBody(target)), config, true)
 	default:
 
