@@ -15,7 +15,7 @@ var Global_Artworks string = "https://www.pixiv.net/artworks"
 func makeRequest(target, cookie, agent, accept string) *http.Request {
 	req, err := http.NewRequest("GET", target, nil)
 	if err != nil {
-		utils.Errorf("http.NewRequest error: %v")
+		utils.Errorf("Function http.NewRequest error: %v", err)
 	}
 	req.Header = http.Header{
 		"Accept":          []string{accept},

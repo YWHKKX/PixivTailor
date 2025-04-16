@@ -13,12 +13,19 @@ import (
 	"github.com/GolangProject/PixivCrawler/common/utils"
 )
 
-type progressWriter struct {
+type ProgressWriter struct {
 	total   int64
 	written int64
 }
 
-func (pw *progressWriter) Write(p []byte) (int, error) {
+func NewProgressWriter(total int64) *ProgressWriter {
+	return &ProgressWriter{
+		total:   total,
+		written: 0,
+	}
+}
+
+func (pw *ProgressWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	pw.written += int64(n)
 
@@ -80,7 +87,7 @@ func Download(id, target string, index int, config config) bool {
 
 	}
 
-	utils.Infof("Try download artworks: %s", target)
+	utils.Infof("Try to download artworks: %s", target)
 	if delay := config.GetDelay(); delay > 0 {
 		time.Sleep(delay)
 	}
@@ -101,10 +108,8 @@ func Download(id, target string, index int, config config) bool {
 		utils.Errorf("File size <= 0, Possibly a request error")
 		return false
 	}
-	progress := &progressWriter{
-		total:   fileSize,
-		written: 0,
-	}
+
+	progress := NewProgressWriter(fileSize)
 
 	if err := os.MkdirAll(savePath, os.ModePerm); err != nil {
 		utils.Errorf("Function os.MkdirAll error: %v", err)

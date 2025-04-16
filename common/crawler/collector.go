@@ -78,8 +78,12 @@ func GetImageUrl(id string, config config) []string {
 	}
 
 	res, err := client.Do(req)
-	if err != nil || res.StatusCode != http.StatusOK {
-		utils.Errorf("Request error(%d): %v", err, res.StatusCode)
+	if err != nil {
+		utils.Errorf("Request error: %v", err)
+		return []string{}
+	}
+	if res.StatusCode != http.StatusOK {
+		utils.Errorf("Request StatusCode: %d", res.StatusCode)
 		return []string{}
 	}
 	defer res.Body.Close()
@@ -170,14 +174,19 @@ func Collector(config config) []*Manga {
 
 		utils.Infof("Collector artworks from: %s", target)
 		res, err := client.Do(req)
-		if err != nil || res.StatusCode != http.StatusOK {
-			utils.Errorf("Request error(%d): %v", err, res.StatusCode)
+		if err != nil {
+			utils.Errorf("Request error: %v", err)
 			return nil
 		}
+		if res.StatusCode != http.StatusOK {
+			utils.Errorf("Request StatusCode: %d", res.StatusCode)
+			return nil
+		}
+		defer res.Body.Close()
+
 		if res.Header.Get("X-Userid") == "" {
 			utils.Warn("Cookie invalid, please update")
 		}
-		defer res.Body.Close()
 
 		bytes := decodeZip(res)
 		utf8Body := decodeToUTF8(res, bytes)

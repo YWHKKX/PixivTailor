@@ -12,9 +12,11 @@ import (
 )
 
 type DeepDanbooruResponses struct {
-	TagName string                 `json:"name"`
-	TagPath string                 `json:"path"`
-	Results []DeepDanbooruResponse `json:"results"`
+	TagName   string                 `json:"tag_name"`
+	TagPath   string                 `json:"tag_path"`
+	Results   []DeepDanbooruResponse `json:"results"`
+	TagString string                 `json:"tag_string"`
+	TagNum    int                    `json:"tag_num"`
 }
 
 type DeepDanbooruResponse struct {
@@ -49,7 +51,7 @@ func ParseSimple(output string) (string, float64) {
 	return "", 0.0
 }
 
-func GetTags(path string, tag []byte) *DeepDanbooruResponse {
+func SplitTags(path string, tag []byte) *DeepDanbooruResponse {
 	var response *DeepDanbooruResponse = &DeepDanbooruResponse{}
 
 	lines := strings.Split(string(tag), "\n")
@@ -68,12 +70,27 @@ func GetTags(path string, tag []byte) *DeepDanbooruResponse {
 	return response
 }
 
-func SaveTagsFormImage() {
+func TidyTags(responses *DeepDanbooruResponses) (string, int) {
+	var tags map[string]struct{} = make(map[string]struct{})
+	var ret []string = make([]string, 0)
+	for _, result := range responses.Results {
+		for _, tag := range result.Tags {
+			if tag.Confidence > 0.5 {
+				tags[tag.Tag[:len(tag.Tag)-1]] = struct{}{}
+			}
+		}
+	}
+	for tag := range tags {
+		ret = append(ret, tag)
+	}
+	return strings.Join(ret, ","), len(ret)
+}
+
+func SaveTagsFormImage(config config) {
 	var responses *DeepDanbooruResponses = &DeepDanbooruResponses{}
 
-	currentPath, _ := os.Getwd()
-	cmdPath := filepath.Join(currentPath, "models")
-	imagePath := filepath.Join(currentPath, "images")
+	cmdPath := filepath.Join(config.GetBasePath(), "models")
+	imagePath := filepath.Join(config.GetBasePath(), "images")
 	tagPath := ""
 
 	saveResponses := func(path string) {
@@ -88,30 +105,32 @@ func SaveTagsFormImage() {
 		_, err = file.Write(data)
 		if err != nil {
 			utils.Errorf("Function io.Copy error: %v", err)
-			return
 		}
-		return
 	}
 
 	files, _ := filepath.Glob(filepath.Join(imagePath, "*", "*.jpg"))
 	for _, file := range files {
 		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
 		tagPath = filepath.Join(imagePath, tagName, tagName+".json")
-		if _, err := os.Stat(tagPath); err == nil {
-			utils.Warnf("Already exist tag file: %s", tagPath)
+		if tagName == config.GetSaveName() {
+			utils.Warnf("Skip tag file: %s", tagPath)
 			continue
 		}
 
-		if responses.TagName == "" {
+		if responses.TagName == "" || responses.TagPath == "" {
 			responses.TagName = tagName
 			responses.TagPath = tagPath
 		} else if responses.TagName != tagName {
 			saveResponses(responses.TagPath)
-
 			responses = &DeepDanbooruResponses{
 				TagName: tagName,
 				TagPath: tagPath,
 			}
+		}
+
+		if _, err := os.Stat(tagPath); err == nil {
+			utils.Warnf("Already exist tag file: %s", tagPath)
+			continue
 		}
 
 		utils.Infof("Analyze image: %s", file)
@@ -120,12 +139,18 @@ func SaveTagsFormImage() {
 			continue
 		}
 
-		if response := GetTags(tagPath, tag); response != nil {
+		if response := SplitTags(tagPath, tag); response != nil {
 			responses.Results = append(responses.Results, *response)
 		}
+		tagString, tagNum := TidyTags(responses)
+		if config.GetShowTags() && tagNum > 0 {
+			utils.Infof("Show tags: %s", tagString)
+		}
+		responses.TagString = tagString
+		responses.TagNum = tagNum
 	}
 
-	if tagPath != "" {
-		saveResponses(tagPath)
+	if responses.TagString != "" {
+		saveResponses(responses.TagPath)
 	}
 }

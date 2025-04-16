@@ -1,21 +1,23 @@
-package main
+package test
 
 import (
 	"os"
 	"path/filepath"
+	"testing"
 
 	"github.com/GolangProject/PixivCrawler/common/ai"
 )
 
-func main() {
+func Test_TXT2IMG(t *testing.T) {
 	config := ai.InitConfig("chosenMix_bakedVae.safetensors [52b8ebbd5b]")
 	config.SetBatchSize(1)
 	config.SetNiter(1)
 	config.SetShowTags(true)
 
 	currntPath, _ := os.Getwd()
-	config.SetInputPath(filepath.Join(currntPath, "images"))
-	config.SetOutputPath(filepath.Join(currntPath, "images"))
+	config.SetBasePath(filepath.Join(currntPath, "./../.."))
+	config.SetInputPath(filepath.Join(currntPath, "./../..", "images"))
+	config.SetOutputPath(filepath.Join(currntPath, "./../..", "images"))
 
 	config.AddAlwaysonScripts("ADetailer", map[string]interface{}{
 		"args": []map[string]interface{}{
