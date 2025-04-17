@@ -3,10 +3,13 @@ package ai
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/GolangProject/PixivCrawler/common/utils"
 )
+
+// modle download from: https://civitai.com/
 
 var SD_API_TXT2IMG string = "http://127.0.0.1:7860/sdapi/v1/txt2img"
 
@@ -45,11 +48,16 @@ Write the desired content here
 }
 */
 
-func makeSDRequest(url, tag string, config config) *http.Response {
+func makeSDRequest(url, tag string, config imageConfig) *http.Response {
+	loraString := ""
+	for l, f := range config.GetLoraModel() {
+		loraString += fmt.Sprintf("<lora:%s:%f>,", l, f)
+	}
+
 	data := map[string]interface{}{
-		"prompt":               tag,
+		"prompt":               loraString + tag,
 		"negative_prompt":      "EasyNegative,badhandsv5-neg,Subtitles,word,",
-		"seed":                 3089360094,
+		"seed":                 -1,
 		"sampler_name":         "DPM++ SDE",
 		"cfg_scale":            7.5,
 		"width":                512,

@@ -110,7 +110,7 @@ func GetMangasTag(input string, config config, isDebug bool) (ret []*Manga) {
 	}
 
 	for index, d := range resp.Body.IllustManga.Data {
-		if index >= config.GetLimit() && config.GetLimit() != 0 {
+		if !config.CheckLimit(index) {
 			utils.Infof("Limit reached: %d", config.GetLimit())
 			break
 		}
@@ -137,7 +137,7 @@ func GetMangaUser(input string, config config, isDebug bool) (ret []*Manga) {
 
 	index := 0
 	for i, d := range resp.Body.Illusts {
-		if index >= config.GetLimit() && config.GetLimit() != 0 {
+		if !config.CheckLimit(index) {
 			utils.Infof("Limit reached: %d", config.GetLimit())
 			break
 		}

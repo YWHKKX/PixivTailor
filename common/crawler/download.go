@@ -66,26 +66,35 @@ func Download(id, target string, index int, config config) bool {
 		},
 	}
 
-	var savePath, saveImagePath string
+	getPath := func(id string, index int) (string, string) {
+		saveImageFile := fmt.Sprintf("image_%s_%d.jpg", id, index)
+		saveImageDir := ""
 
-	switch config.GetConfigType() {
-	case SEARCH_BY_TAG:
-		savePath = filepath.Join(config.GetSavePath(), config.GetTag())
-		saveImagePath = filepath.Join(savePath, fmt.Sprintf("image_%s_%d.jpg", id, index))
-		if _, err := os.Stat(saveImagePath); err == nil {
-			utils.Warnf("File already exists: %s", saveImagePath)
-			return true
+		if saveName := config.GetSaveName(); saveName != "" {
+			saveImageDir = filepath.Join(config.GetSavePath(), saveName)
+			return saveImageFile, saveImageDir
 		}
-	case SEARCH_BY_USER:
-		savePath = filepath.Join(config.GetSavePath(), id)
-		saveImagePath = filepath.Join(savePath, fmt.Sprintf("image_%d.jpg", index))
-		if _, err := os.Stat(saveImagePath); err == nil {
-			utils.Warnf("File already exists: %s", saveImagePath)
-			return true
-		}
-	default:
 
+		switch config.GetConfigType() {
+		case SEARCH_BY_TAG:
+			saveImageDir = filepath.Join(config.GetSavePath(), config.GetTag())
+			if _, err := os.Stat(saveImageFile); err == nil {
+				utils.Warnf("File already exists: %s", saveImageFile)
+				return "", ""
+			}
+		case SEARCH_BY_USER:
+			saveImageDir = filepath.Join(config.GetSavePath(), id)
+			if _, err := os.Stat(saveImageFile); err == nil {
+				utils.Warnf("File already exists: %s", saveImageFile)
+				return "", ""
+			}
+		default:
+
+		}
+		return saveImageFile, saveImageDir
 	}
+
+	saveImageFile, saveImageDir := getPath(id, index)
 
 	utils.Infof("Try to download artworks: %s", target)
 	if delay := config.GetDelay(); delay > 0 {
@@ -109,20 +118,19 @@ func Download(id, target string, index int, config config) bool {
 		return false
 	}
 
-	progress := NewProgressWriter(fileSize)
-
-	if err := os.MkdirAll(savePath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(saveImageDir, os.ModePerm); err != nil {
 		utils.Errorf("Function os.MkdirAll error: %v", err)
 		return false
 	}
 
-	file, err := os.Create(saveImagePath)
+	file, err := os.Create(filepath.Join(saveImageDir, saveImageFile))
 	if err != nil {
 		utils.Errorf("Function os.Create error: %v", err)
 		return false
 	}
 	defer file.Close()
 
+	progress := NewProgressWriter(fileSize)
 	_, err = io.Copy(file, io.TeeReader(res.Body, progress))
 	if err != nil {
 		utils.Errorf("Function io.Copy error: %v", err)

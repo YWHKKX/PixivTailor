@@ -40,7 +40,7 @@ func AnalyzeImage(cmdPath, imagePath string) []byte {
 	return output
 }
 
-func ParseSimple(output string) (string, float64) {
+func parseSimple(output string) (string, float64) {
 
 	parts := strings.SplitN(output, " ", 2)
 	if len(parts) == 2 {
@@ -51,12 +51,12 @@ func ParseSimple(output string) (string, float64) {
 	return "", 0.0
 }
 
-func SplitTags(path string, tag []byte) *DeepDanbooruResponse {
+func splitTags(path string, tag []byte) *DeepDanbooruResponse {
 	var response *DeepDanbooruResponse = &DeepDanbooruResponse{}
 
 	lines := strings.Split(string(tag), "\n")
 	for _, line := range lines {
-		if tag, score := ParseSimple(line); score > 0 {
+		if tag, score := parseSimple(line); score > 0 {
 			response.Tags = append(response.Tags, struct {
 				Tag        string  `json:"tag"`
 				Confidence float64 `json:"confidence"`
@@ -70,7 +70,7 @@ func SplitTags(path string, tag []byte) *DeepDanbooruResponse {
 	return response
 }
 
-func TidyTags(responses *DeepDanbooruResponses) (string, int) {
+func tidyTags(responses *DeepDanbooruResponses) (string, int) {
 	var tags map[string]struct{} = make(map[string]struct{})
 	var ret []string = make([]string, 0)
 	for _, result := range responses.Results {
@@ -86,7 +86,7 @@ func TidyTags(responses *DeepDanbooruResponses) (string, int) {
 	return strings.Join(ret, ","), len(ret)
 }
 
-func SaveTagsFormImage(config config) {
+func SaveTagsFormImage(config imageConfig) {
 	var responses *DeepDanbooruResponses = &DeepDanbooruResponses{}
 
 	cmdPath := filepath.Join(config.GetBasePath(), "models")
@@ -104,7 +104,7 @@ func SaveTagsFormImage(config config) {
 		data, _ := json.Marshal(responses)
 		_, err = file.Write(data)
 		if err != nil {
-			utils.Errorf("Function io.Copy error: %v", err)
+			utils.Errorf("Function file.Write error: %v", err)
 		}
 	}
 
@@ -120,7 +120,7 @@ func SaveTagsFormImage(config config) {
 		if responses.TagName == "" || responses.TagPath == "" {
 			responses.TagName = tagName
 			responses.TagPath = tagPath
-		} else if responses.TagName != tagName {
+		} else if responses.TagName != tagName && responses.TagString != "" {
 			saveResponses(responses.TagPath)
 			responses = &DeepDanbooruResponses{
 				TagName: tagName,
@@ -139,10 +139,10 @@ func SaveTagsFormImage(config config) {
 			continue
 		}
 
-		if response := SplitTags(tagPath, tag); response != nil {
+		if response := splitTags(tagPath, tag); response != nil {
 			responses.Results = append(responses.Results, *response)
 		}
-		tagString, tagNum := TidyTags(responses)
+		tagString, tagNum := tidyTags(responses)
 		if config.GetShowTags() && tagNum > 0 {
 			utils.Infof("Show tags: %s", tagString)
 		}

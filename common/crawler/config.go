@@ -42,6 +42,7 @@ type requestConfig struct {
 
 type downloadConfig struct {
 	savePath string
+	saveName string
 	delay    time.Duration
 	limit    int
 }
@@ -54,12 +55,12 @@ type config struct {
 }
 
 // https://www.pixiv.net/ajax/search/artworks/{tag}?word={tag}&order={order}&mode={mode}&p=1&s_mode=s_tag_full&type={mode}&lang=zh
-func InitTagConfig(tag string, order Order, mode Mode, savePaths ...string) config {
-	currentPath, _ := os.Getwd()
-	savePath := filepath.Join(currentPath, "images")
-	if len(savePaths) > 0 {
-		savePath = savePaths[0]
+func InitTagConfig(tag string, order Order, mode Mode, basePaths ...string) config {
+	basePath, _ := os.Getwd()
+	if len(basePaths) > 0 {
+		basePath = basePaths[0]
 	}
+
 	return config{
 		configType: SEARCH_BY_TAG,
 		searchConfig: searchConfig{
@@ -68,25 +69,25 @@ func InitTagConfig(tag string, order Order, mode Mode, savePaths ...string) conf
 			mode:  mode,
 		},
 		downloadConfig: downloadConfig{
-			savePath: savePath,
+			savePath: filepath.Join(basePath, "images"),
 		},
 	}
 }
 
 // https://www.pixiv.net/ajax/user/{userid}/works/latest
-func InitUserConfig(user int, savePaths ...string) config {
-	currentPath, _ := os.Getwd()
-	savePath := filepath.Join(currentPath, "images")
-	if len(savePaths) > 0 {
-		savePath = savePaths[0]
+func InitUserConfig(user int, basePaths ...string) config {
+	basePath, _ := os.Getwd()
+	if len(basePaths) > 0 {
+		basePath = basePaths[0]
 	}
+
 	return config{
 		configType: SEARCH_BY_USER,
 		searchConfig: searchConfig{
 			user: user,
 		},
 		downloadConfig: downloadConfig{
-			savePath: savePath,
+			savePath: filepath.Join(basePath, "images"),
 		},
 	}
 }
@@ -142,12 +143,27 @@ func (c *config) SetSavePath(savePath string) {
 	c.downloadConfig.savePath = savePath
 }
 
+func (c *config) GetSaveName() string {
+	return c.downloadConfig.saveName
+}
+
+func (c *config) SetSaveName(saveName string) {
+	c.downloadConfig.saveName = saveName
+}
+
 func (c *config) GetLimit() int {
 	return c.downloadConfig.limit
 }
 
 func (c *config) SetLimit(limit int) {
 	c.downloadConfig.limit = limit
+}
+
+func (c *config) CheckLimit(index int) bool {
+	if index >= c.GetLimit() && c.GetLimit() != 0 {
+		return false
+	}
+	return true
 }
 
 func (c *config) GetDelay() time.Duration {

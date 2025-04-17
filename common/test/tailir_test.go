@@ -9,15 +9,14 @@ import (
 )
 
 func Test_TXT2IMG(t *testing.T) {
-	config := ai.InitConfig("chosenMix_bakedVae.safetensors [52b8ebbd5b]")
+	currntPath, _ := os.Getwd()
+	basePath := filepath.Join(currntPath, "./../..")
+
+	config := ai.InitImageConfig("chosenMix_bakedVae.safetensors [52b8ebbd5b]", basePath)
 	config.SetBatchSize(1)
 	config.SetNiter(1)
 	config.SetShowTags(true)
-
-	currntPath, _ := os.Getwd()
-	config.SetBasePath(filepath.Join(currntPath, "./../.."))
-	config.SetInputPath(filepath.Join(currntPath, "./../..", "images"))
-	config.SetOutputPath(filepath.Join(currntPath, "./../..", "images"))
+	config.AddLoraModel("re0", 0.8)
 
 	config.AddAlwaysonScripts("ADetailer", map[string]interface{}{
 		"args": []map[string]interface{}{
@@ -56,4 +55,34 @@ func Test_TXT2IMG(t *testing.T) {
 
 	ai.SaveTagsFormImage(config)
 	ai.Tailor_TXT2IMG(config)
+}
+
+func Test_TrainModel(t *testing.T) {
+	currntPath, _ := os.Getwd()
+	basePath := filepath.Join(currntPath, "./../..")
+
+	modelName := "re0"
+	pretrainedPath := "D:/PythonProject/stable-diffusion-webui/models/Stable-diffusion/chosenMix_bakedVae.safetensors"
+	inputDir := filepath.Join(basePath, "images", "Test")
+
+	config := ai.NewTrainConfig(modelName, pretrainedPath, inputDir, basePath)
+	config.SetLimit(40)
+
+	config.AddTagConfig(
+		"rem", filepath.Join(basePath, "images", "Rem"), 10,
+	)
+	config.AddTagConfig(
+		"ram", filepath.Join(basePath, "images", "Ram"), 10,
+	)
+	config.AddTagConfig(
+		"echidna", filepath.Join(basePath, "images", "Echidna"), 10,
+	)
+	config.AddTagConfig(
+		"emilia", filepath.Join(basePath, "images", "Emilia"), 10,
+	)
+	config.AddTagConfig(
+		"capella", filepath.Join(basePath, "images", "Capella"), 10,
+	)
+
+	ai.Tailor_TrainModel(config)
 }
