@@ -12,6 +12,7 @@ import (
 // modle download from: https://civitai.com/
 
 var SD_API_TXT2IMG string = "http://127.0.0.1:7860/sdapi/v1/txt2img"
+var SD_API_TAGGER string = "http://127.0.0.1:7860/tagger/v1/interrogate"
 
 /*
 {
@@ -48,10 +49,13 @@ Write the desired content here
 }
 */
 
-func makeSDRequest(url, tag string, config imageConfig) *http.Response {
+func makeSDRequest(url, tag string, config ImageConfig) *http.Response {
 	loraString := ""
 	for l, f := range config.GetLoraModel() {
 		loraString += fmt.Sprintf("<lora:%s:%f>,", l, f)
+	}
+	for _, e := range config.GetExtendTags() {
+		loraString += fmt.Sprintf("%s,", e)
 	}
 
 	data := map[string]interface{}{
@@ -84,7 +88,7 @@ func makeSDRequest(url, tag string, config imageConfig) *http.Response {
 		"hr_prompt":            "",
 		"hr_negative_prompt":   "",
 		"override_settings": map[string]interface{}{
-			"sd_model_checkpoint": config.GetModel(),
+			"sd_model_checkpoint": config.GetMainModelName(),
 			"sd_vae":              "Automatic",
 		},
 		"alwayson_scripts":                     config.GetAlwaysonScripts(),
