@@ -5,20 +5,20 @@ import (
 )
 
 type Crawler struct {
-	config
+	CrawlerConfig
 }
 
-func NewCrawler(config config) *Crawler {
-	return &Crawler{config: config}
+func NewCrawler(config CrawlerConfig) *Crawler {
+	return &Crawler{CrawlerConfig: config}
 }
 
 func (c *Crawler) Run() {
 	utils.Info("Start crawler url")
-	mangas := Collector(c.config)
+	mangas := Collector(c.CrawlerConfig)
 
 	for _, manga := range mangas {
 		for i, url := range manga.urls {
-			ok := Download(manga.id, url, i, c.config)
+			ok := Download(manga.id, url, i, c.CrawlerConfig)
 			if !ok {
 				utils.Errorf("Download error: %s", url)
 				continue

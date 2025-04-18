@@ -13,6 +13,7 @@ type ConfigType int
 const (
 	SEARCH_BY_TAG ConfigType = iota
 	SEARCH_BY_USER
+	SEARCH_BY_Illust
 )
 
 type Mode string
@@ -30,10 +31,11 @@ const (
 )
 
 type searchConfig struct {
-	tag   string
-	user  int
-	order Order
-	mode  Mode
+	tag    string
+	user   int
+	illust int
+	order  Order
+	mode   Mode
 }
 
 type requestConfig struct {
@@ -47,7 +49,7 @@ type downloadConfig struct {
 	limit    int
 }
 
-type config struct {
+type CrawlerConfig struct {
 	configType     ConfigType
 	searchConfig   searchConfig
 	requestConfig  requestConfig
@@ -55,13 +57,13 @@ type config struct {
 }
 
 // https://www.pixiv.net/ajax/search/artworks/{tag}?word={tag}&order={order}&mode={mode}&p=1&s_mode=s_tag_full&type={mode}&lang=zh
-func InitTagConfig(tag string, order Order, mode Mode, basePaths ...string) config {
+func InitTagConfig(tag string, order Order, mode Mode, basePaths ...string) CrawlerConfig {
 	basePath, _ := os.Getwd()
 	if len(basePaths) > 0 {
 		basePath = basePaths[0]
 	}
 
-	return config{
+	return CrawlerConfig{
 		configType: SEARCH_BY_TAG,
 		searchConfig: searchConfig{
 			tag:   tag,
@@ -75,13 +77,13 @@ func InitTagConfig(tag string, order Order, mode Mode, basePaths ...string) conf
 }
 
 // https://www.pixiv.net/ajax/user/{userid}/works/latest
-func InitUserConfig(user int, basePaths ...string) config {
+func InitUserConfig(user int, basePaths ...string) CrawlerConfig {
 	basePath, _ := os.Getwd()
 	if len(basePaths) > 0 {
 		basePath = basePaths[0]
 	}
 
-	return config{
+	return CrawlerConfig{
 		configType: SEARCH_BY_USER,
 		searchConfig: searchConfig{
 			user: user,
@@ -92,88 +94,110 @@ func InitUserConfig(user int, basePaths ...string) config {
 	}
 }
 
-func (c *config) GetTag() string {
+// https://www.pixiv.net/ajax/illust/{illustid}/pages
+func InitIllustConfig(illust int, basePaths ...string) CrawlerConfig {
+	basePath, _ := os.Getwd()
+	if len(basePaths) > 0 {
+		basePath = basePaths[0]
+	}
+
+	return CrawlerConfig{
+		configType: SEARCH_BY_Illust,
+		searchConfig: searchConfig{
+			illust: illust,
+		},
+		downloadConfig: downloadConfig{
+			savePath: filepath.Join(basePath, "images"),
+		},
+	}
+}
+
+func (c *CrawlerConfig) GetTag() string {
 	return c.searchConfig.tag
 }
 
-func (c *config) SetTag(tag string) {
+func (c *CrawlerConfig) SetTag(tag string) {
 	c.searchConfig.tag = tag
 }
 
-func (c *config) GetOrder() Order {
+func (c *CrawlerConfig) GetOrder() Order {
 	return c.searchConfig.order
 }
 
-func (c *config) GetMode() Mode {
+func (c *CrawlerConfig) GetMode() Mode {
 	return c.searchConfig.mode
 }
-func (c *config) getUser() int {
+func (c *CrawlerConfig) GetUser() int {
 	return c.searchConfig.user
 }
 
-func (c *config) GetCookie() string {
+func (c *CrawlerConfig) GetIllust() int {
+	return c.searchConfig.illust
+}
+
+func (c *CrawlerConfig) GetCookie() string {
 	return c.requestConfig.cookie
 }
 
-func (c *config) SetCookie(cookie string) {
+func (c *CrawlerConfig) SetCookie(cookie string) {
 	c.requestConfig.cookie = cookie
 }
 
-func (c *config) GetAgent() string {
+func (c *CrawlerConfig) GetAgent() string {
 	return c.requestConfig.agent
 }
 
-func (c *config) SetAgent(agent string) {
+func (c *CrawlerConfig) SetAgent(agent string) {
 	c.requestConfig.agent = agent
 }
 
-func (c *config) GetAccept() string {
+func (c *CrawlerConfig) GetAccept() string {
 	return c.requestConfig.accept
 }
 
-func (c *config) SetAccept(accept string) {
+func (c *CrawlerConfig) SetAccept(accept string) {
 	c.requestConfig.accept = accept
 }
 
-func (c *config) GetSavePath() string {
+func (c *CrawlerConfig) GetSavePath() string {
 	return c.downloadConfig.savePath
 }
 
-func (c *config) SetSavePath(savePath string) {
+func (c *CrawlerConfig) SetSavePath(savePath string) {
 	c.downloadConfig.savePath = savePath
 }
 
-func (c *config) GetSaveName() string {
+func (c *CrawlerConfig) GetSaveName() string {
 	return c.downloadConfig.saveName
 }
 
-func (c *config) SetSaveName(saveName string) {
+func (c *CrawlerConfig) SetSaveName(saveName string) {
 	c.downloadConfig.saveName = saveName
 }
 
-func (c *config) GetLimit() int {
+func (c *CrawlerConfig) GetLimit() int {
 	return c.downloadConfig.limit
 }
 
-func (c *config) SetLimit(limit int) {
+func (c *CrawlerConfig) SetLimit(limit int) {
 	c.downloadConfig.limit = limit
 }
 
-func (c *config) CheckLimit(index int) bool {
+func (c *CrawlerConfig) CheckLimit(index int) bool {
 	if index >= c.GetLimit() && c.GetLimit() != 0 {
 		return false
 	}
 	return true
 }
 
-func (c *config) GetDelay() time.Duration {
+func (c *CrawlerConfig) GetDelay() time.Duration {
 	return c.downloadConfig.delay
 }
 
-func (c *config) SetDelay(delay time.Duration) {
+func (c *CrawlerConfig) SetDelay(delay time.Duration) {
 	c.downloadConfig.delay = delay
 }
 
-func (c *config) GetConfigType() ConfigType {
+func (c *CrawlerConfig) GetConfigType() ConfigType {
 	return c.configType
 }

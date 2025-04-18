@@ -63,8 +63,7 @@ func NewManga(title, id string, url []string) *Manga {
 	}
 }
 
-// https://www.pixiv.net/ajax/illust/{userid}/pages
-func GetImageUrl(id string, config config) []string {
+func GetImageUrl(id string, config CrawlerConfig) []string {
 	var ret []string
 
 	target := fmt.Sprintf("%s/%s/pages", Global_Illust, id)
@@ -101,7 +100,21 @@ func GetImageUrl(id string, config config) []string {
 	return ret
 }
 
-func GetMangasTag(input string, config config, isDebug bool) (ret []*Manga) {
+func GetMangaIllus(config CrawlerConfig, isDebug bool) (ret []*Manga) {
+	id := fmt.Sprintf("%d", config.GetIllust())
+	urls := GetImageUrl(id, config)
+	ret = append(ret, NewManga("", id, urls))
+	if isDebug {
+		utils.Infof("{%s\t%s\t%s}", id, "", fmt.Sprintf("%s/%s", Global_Artworks, id))
+	}
+
+	if isDebug {
+		utils.Infof("GetList len: %d", len(ret))
+	}
+	return
+}
+
+func GetMangaTag(input string, config CrawlerConfig, isDebug bool) (ret []*Manga) {
 	var resp TagResponse
 	err := json.Unmarshal([]byte(input), &resp)
 	if err != nil {
@@ -127,7 +140,7 @@ func GetMangasTag(input string, config config, isDebug bool) (ret []*Manga) {
 	return
 }
 
-func GetMangaUser(input string, config config, isDebug bool) (ret []*Manga) {
+func GetMangaUser(input string, config CrawlerConfig, isDebug bool) (ret []*Manga) {
 	var resp UserResponse
 	err := json.Unmarshal([]byte(input), &resp)
 	if err != nil {
@@ -159,7 +172,7 @@ func GetMangaUser(input string, config config, isDebug bool) (ret []*Manga) {
 	return
 }
 
-func Collector(config config) []*Manga {
+func Collector(config CrawlerConfig) []*Manga {
 	var ret []*Manga
 
 	getBody := func(target string) []byte {
@@ -197,11 +210,13 @@ func Collector(config config) []*Manga {
 	case SEARCH_BY_TAG:
 		target := fmt.Sprintf("%s/%s?word=%s&order=%s&mode=%s&p=1&s_mode=s_tag_full&type=%s&lang=zh",
 			Global_Search_Tag, config.GetTag(), config.GetTag(), config.GetTag(), config.GetMode(), config.GetMode())
-		ret = GetMangasTag(string(getBody(target)), config, true)
+		ret = GetMangaTag(string(getBody(target)), config, true)
 	case SEARCH_BY_USER:
 		target := fmt.Sprintf("%s/%d/works/latest",
-			Global_User, config.getUser())
+			Global_User, config.GetUser())
 		ret = GetMangaUser(string(getBody(target)), config, true)
+	case SEARCH_BY_Illust:
+		ret = GetMangaIllus(config, true)
 	default:
 
 	}

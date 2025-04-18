@@ -56,7 +56,7 @@ func formatBytes(b int64) string {
 }
 
 // https://i.pximg.net/img-master/img/{time}/{illustID}_p{index}_master1200.jpg
-func Download(id, target string, index int, config config) bool {
+func Download(id, target string, index int, config CrawlerConfig) bool {
 	req := makeRequest(target, config.GetCookie(), config.GetAgent(), config.GetAccept())
 
 	proxyURL, _ := url.Parse("http://127.0.0.1:7890")
@@ -83,6 +83,12 @@ func Download(id, target string, index int, config config) bool {
 				return "", ""
 			}
 		case SEARCH_BY_USER:
+			saveImageDir = filepath.Join(config.GetSavePath(), id)
+			if _, err := os.Stat(saveImageFile); err == nil {
+				utils.Warnf("File already exists: %s", saveImageFile)
+				return "", ""
+			}
+		case SEARCH_BY_Illust:
 			saveImageDir = filepath.Join(config.GetSavePath(), id)
 			if _, err := os.Stat(saveImageFile); err == nil {
 				utils.Warnf("File already exists: %s", saveImageFile)
