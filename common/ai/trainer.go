@@ -64,10 +64,12 @@ func buildTrainingSet(config TrainConfig) bool {
 				if !config.CheckLimit(index) {
 					return nil
 				}
-				index++
 
 				ext := strings.ToLower(filepath.Ext(path))
-				if ext == ".jpg" || ext == ".png" || ext == ".jpeg" || ext == ".gif" || ext == ".txt" {
+				if ext == ".jpg" {
+					index++
+				}
+				if ext == ".jpg" || ext == ".txt" {
 					relPath, _ := filepath.Rel(srcDir, path)
 					destPath := filepath.Join(destDir, relPath)
 
@@ -101,7 +103,8 @@ func buildTrainingSet(config TrainConfig) bool {
 func buildModelConfig(config TrainConfig) (string, bool) {
 	var trainModelCofig map[string]interface{}
 
-	fileData, err := os.ReadFile(config.examplePath)
+	examplePath := filepath.Join(config.GetBasePath(), "scripts", "example.json")
+	fileData, err := os.ReadFile(examplePath)
 	if err != nil {
 		utils.Errorf("Read File Error: %v", err)
 		return "", false
@@ -119,6 +122,9 @@ func buildModelConfig(config TrainConfig) (string, bool) {
 	trainModelCofig["train_data_dir"] = config.GetInputDir()
 	trainModelCofig["output_dir"] = config.GetOutputDir()
 	trainModelCofig["logging_dir"] = config.GetLogDir()
+	for _, t := range config.GetTagConfigs() {
+		trainModelCofig["sample_prompts"] = t.GetTagName()
+	}
 
 	newData, err := json.MarshalIndent(trainModelCofig, "", "  ")
 	if err != nil {

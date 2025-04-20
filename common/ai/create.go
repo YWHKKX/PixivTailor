@@ -19,13 +19,20 @@ type SDResponse struct {
 func CreateImage_TXT2IMG(config ImageConfig) {
 	inputPath := config.GetInputPath()
 	outputPath := config.GetOutputPath()
+
 	files, _ := filepath.Glob(filepath.Join(inputPath, "*", "*."+string(config.GetSaveType())))
 
-	DownloadImage := func(path string, index int, content []byte) {
-		file, err := os.Create(fmt.Sprintf("%s_%d.jpg", path, index))
+	DownloadImage := func(path string, index int, content []byte) bool {
+		savePath := fmt.Sprintf("%s_%d.jpg", path, index)
+		if _, err := os.Stat(savePath); err == nil {
+			utils.Warnf("File already exists: %s", savePath)
+			return false
+		}
+
+		file, err := os.Create(savePath)
 		if err != nil {
 			utils.Errorf("Function os.Create error: %v", err)
-			return
+			return false
 		}
 		defer file.Close()
 
@@ -42,9 +49,17 @@ func CreateImage_TXT2IMG(config ImageConfig) {
 			}
 		}
 		writer.Flush()
+
+		return true
 	}
 
+	index := 0
+	tmpTag := ""
 	for _, file := range files {
+		if !config.CheckPathFilter(file) {
+			continue
+		}
+
 		var responses DeepDanbooruResponses
 		var SDResponse SDResponse
 
@@ -75,7 +90,11 @@ func CreateImage_TXT2IMG(config ImageConfig) {
 		}
 
 		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
-		saveDir := filepath.Join(outputPath, config.GetSaveName())
+		if tagName != tmpTag {
+			index = 0
+			tmpTag = tagName
+		}
+		saveDir := filepath.Join(outputPath, config.GetSavePathName())
 		saveFile := filepath.Join(saveDir, tagName)
 		if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
 			utils.Errorf("Function os.MkdirAll error: %v", err)
@@ -95,9 +114,23 @@ func CreateImage_TXT2IMG(config ImageConfig) {
 			utils.Error(err)
 		}
 
+		ignoreNum := 0
+		for _, poseConfig := range config.GetPoseConfigs() {
+			ignoreNum += poseConfig.MemberNum/2 - 1
+		}
+		utils.Infof("The number of bone diagrams: %d", ignoreNum)
+
 		for i, image := range SDResponse.Images {
-			utils.Infof("Try to download new image: %s", fmt.Sprintf("%s_%d.jpg", tagName, i))
-			DownloadImage(saveFile, i, image)
+			if i >= len(SDResponse.Images)-ignoreNum {
+				utils.Info("Skip the bone diagram")
+				continue
+			}
+			retry := true
+			for retry {
+				utils.Infof("Try to download new image: %s", fmt.Sprintf("%s_%d.jpg", tagName, index))
+				retry = !DownloadImage(saveFile, index, image)
+				index++
+			}
 		}
 	}
 

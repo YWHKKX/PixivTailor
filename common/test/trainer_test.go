@@ -14,7 +14,7 @@ func Test_TrainModel(t *testing.T) {
 
 	modelName := "re0"
 	pretrainedPath := ""
-	inputDir := filepath.Join(basePath, "images", "Test")
+	inputDir := filepath.Join(basePath, "images", "Train")
 
 	config := ai.NewTrainConfig(modelName, pretrainedPath, inputDir, basePath)
 	config.SetLimit(40)

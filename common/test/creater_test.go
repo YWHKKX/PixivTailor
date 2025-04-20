@@ -16,11 +16,11 @@ func Test_TXT2IMG(t *testing.T) {
 	config.SetBatchSize(1)
 	config.SetNiter(1)
 
-	config.SetForEach(true)
 	config.SetSaveType(ai.Save_Txt)
 
 	config.AddLoraModel("re0", 0.8)
-	config.AddtExtendTag("re0", "rem")
+	config.AddExtendTag("re0", "rem")
+	config.AddExtendTags([]string{"girl", "maid"})
 
 	config.AddAlwaysonScripts("ADetailer", map[string]interface{}{
 		"args": []map[string]interface{}{
@@ -33,6 +33,12 @@ func Test_TXT2IMG(t *testing.T) {
 				"ad_inpaint_only_masked": true,
 				"ad_inpaint_padding":     32,
 				"ad_version":             "25.3.0",
+			}, {
+				"ad_model":              "hand_yolov9c.pt",
+				"ad_confidence":         0.2,
+				"ad_denoising_strength": 0.5,
+				"ad_mask_blur":          8,
+				"ad_inpaint_padding":    64,
 			},
 		},
 	})
@@ -57,6 +63,5 @@ func Test_TXT2IMG(t *testing.T) {
 	// 	},
 	// })
 
-	ai.SaveTagsFormImage(config)
 	ai.CreateImage_TXT2IMG(config)
 }

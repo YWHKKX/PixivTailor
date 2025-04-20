@@ -4,7 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/GolangProject/PixivCrawler/common/utils"
 )
@@ -51,18 +56,142 @@ Write the desired content here
 
 func makeSDRequest(url, tag string, config ImageConfig) *http.Response {
 	loraString := ""
+	negativeString := strings.Join(GlobalTag_Negative, ",")
+
 	for l, f := range config.GetLoraModel() {
-		loraString += fmt.Sprintf("<lora:%s:%f>,", l, f)
+		extendTags := ""
+		for _, e := range config.GetExtendTags(l) {
+			extendTags += e + ","
+		}
+		loraString += fmt.Sprintf("<lora:%s:%f>%s", l, f, extendTags)
 	}
-	for _, e := range config.GetExtendTags() {
+	for _, e := range config.GetExtendTags("") {
 		loraString += fmt.Sprintf("%s,", e)
+	}
+
+	args_ADetailer := []map[string]interface{}{}
+	args_ControlNet := []map[string]interface{}{}
+
+	if config.GetFixface() {
+		args_ADetailer = append(args_ADetailer, map[string]interface{}{
+			"ad_model":               "face_yolov8n.pt",
+			"ad_confidence":          0.3,
+			"ad_dilate_erode":        4,
+			"ad_mask_blur":           4,
+			"ad_denoising_strength":  0.4,
+			"ad_inpaint_only_masked": true,
+			"ad_inpaint_padding":     32,
+			"ad_version":             "25.3.0",
+		})
+	}
+	if config.GetFixhand() {
+		args_ADetailer = append(args_ADetailer, map[string]interface{}{
+			"ad_model":              "hand_yolov9c.pt",
+			"ad_confidence":         0.2,
+			"ad_denoising_strength": 0.5,
+			"ad_mask_blur":          8,
+			"ad_inpaint_padding":    64,
+		})
+	}
+
+	for poseName, poseConfig := range config.GetPoseConfigs() {
+		poseDir := filepath.Join(config.GetBasePath(), "poses", poseName)
+		entries, err := ioutil.ReadDir(poseDir)
+
+		if err != nil {
+			utils.Errorf("PosePath dir: %s not find, error: %s", poseDir, err)
+			return nil
+		}
+
+		setArg := func(imageData []byte) {
+			//base64Encoding := base64.StdEncoding.EncodeToString(imageData)
+			args_ControlNet = append(args_ControlNet, map[string]interface{}{
+				"enabled":        true,
+				"preprocessor":   "none",
+				"pixel_perfect":  true,
+				"allow_preview":  false,
+				"low_vram":       false,
+				"control_mode":   "Balanced",
+				"model":          "control_v11p_sd15_openpose [cab727d4]",
+				"weight":         1,
+				"threshold_a":    0.5,
+				"threshold_b":    0.5,
+				"guidance_start": 0,
+				"guidance_end":   1,
+				"processor_res":  512,
+				"image":          imageData,
+			})
+		}
+
+		var groupNum, memberNum int
+		tmpName := ""
+		for _, file := range entries {
+			filename := file.Name()
+			ext := filepath.Ext(filename)
+			nameWithoutExt := strings.TrimSuffix(filename, ext)
+			parts := strings.Split(nameWithoutExt, "_")
+			nameFinal := parts[0]
+
+			if nameFinal != tmpName {
+				groupNum++
+				memberNum = 0
+				tmpName = nameFinal
+			}
+			memberNum++
+		}
+
+		poseConfig.GroupNum = groupNum
+		poseConfig.MemberNum = memberNum
+		poseKey := poseConfig.PoseKey
+
+		poseFile := filepath.Join(poseDir, poseKey+".png")
+		if _, err := os.Stat(poseFile); err == nil {
+			utils.Infof("PosePath file: %s to configuration", poseFile)
+
+			for index := 1; index < memberNum/2; index++ {
+				poseFile = filepath.Join(poseDir, fmt.Sprintf("%s_%d.png", poseKey, index))
+				imageData, err := ioutil.ReadFile(poseFile)
+				if err != nil {
+					utils.Errorf("PosePath file: %s not find, error: %s", poseFile, err)
+					return nil
+				}
+				setArg(imageData)
+			}
+		} else {
+			randomNum := rand.Intn(groupNum)
+			utils.Warnf("PosePath file: %s not find, try using random pose", poseFile)
+			utils.Infof("PosePath file: %s to configuration", filepath.Join(poseDir, fmt.Sprintf("%s%d.png", poseKey, randomNum)))
+
+			for index := 1; index < memberNum/2; index++ {
+				poseFile = filepath.Join(poseDir, fmt.Sprintf("%s%d_%d.png", poseKey, randomNum, index))
+				imageData, err := ioutil.ReadFile(poseFile)
+				if err != nil {
+					utils.Errorf("PosePath file: %s not find, error: %s", poseFile, err)
+					return nil
+				}
+				setArg(imageData)
+			}
+		}
+
+	}
+
+	if args_ADetailer != nil {
+		config.AddAlwaysonScripts("ADetailer", map[string]interface{}{
+			"args": args_ADetailer,
+		})
+	}
+
+	if args_ControlNet != nil {
+		config.AddAlwaysonScripts("ControlNet", map[string]interface{}{
+			"args": args_ControlNet,
+		})
 	}
 
 	data := map[string]interface{}{
 		"prompt":               loraString + tag,
-		"negative_prompt":      "EasyNegative,badhandsv5-neg,Subtitles,word,",
+		"negative_prompt":      negativeString,
 		"seed":                 -1,
-		"sampler_name":         "DPM++ SDE",
+		"sampler_name":         "DPM++ 2M SDE",
 		"cfg_scale":            7.5,
 		"width":                512,
 		"height":               512,

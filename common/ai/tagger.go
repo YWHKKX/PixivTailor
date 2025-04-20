@@ -9,11 +9,40 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/GolangProject/PixivCrawler/common/utils"
 )
+
+var GlobalTag_Negative []string = []string{
+	"low quality", "worst quality", "deformed",
+	"distorted", "(extra limbs:1.3)", "(mutated hands:1.4)",
+	"fused fingers", "(cloned face:1.2)", "(multiple people:1.5)",
+	"overlapping figures", "merged bodies", "bad anatomy",
+	"malformed limbs", "extra arms", "out of focus, blurry",
+	"(crowd:1.3)", "(congested:1.2)", "no merged poses",
+	"distinct postures", "blurry", "lowres", "jpeg artifacts",
+	"watermark",
+}
+
+var GlobalTag_Clothing []string = []string{
+	"clothing", "underwear", "dress", "tunic",
+	"shirt", "hat", "beret", "turban",
+	"jacket", "glove", "tie", "cravat",
+	"heels", "apron", "moccasin", "slippers",
+	"bow", "swimsuit", "bathing suit", "bikini",
+	"uniform", "stockings", "suspenders", "handkerchief",
+	"scrunchie", "slip", "petticoat",
+	"bowtie", "stays", "corset", "panties",
+	"sleeve", "mantle", "cloak", "bathrobe",
+	"socks", "pocket", "cuff", "blouse",
+	"ribbon", "vest", "kimono", "trousers",
+	"chalkboard", "belt", "underskirt", "briefs",
+	"shoes", "brassiere", "bra", "corselet",
+	"top", "skirt", "coat", "sweater",
+}
 
 type DeepDanbooruResponses struct {
 	TagName   string                 `json:"tag_name"`
@@ -132,7 +161,7 @@ func tidyTags(responses *DeepDanbooruResponses) (string, int) {
 	for _, result := range responses.Results {
 		for _, tag := range result.Tags {
 			if tag.Confidence > 0.8 {
-				tags[tag.Tag[:len(tag.Tag)-1]] = struct{}{}
+				tags[tag.Tag] = struct{}{}
 			}
 		}
 	}
@@ -165,9 +194,12 @@ func SaveTagsFormImage(config ImageConfig) {
 				utils.Errorf("Function file.Write error: %v", err)
 			}
 		case Save_Txt:
-			newTag := config.CheckTagConfig(path)
+			newTag := ""
+			for _, e := range config.GetExtendTags("") {
+				newTag += fmt.Sprintf("%s,", e)
+			}
 			data := responses.TagString
-			_, err = file.WriteString(fmt.Sprintf("%s,%s", newTag, data))
+			_, err = file.WriteString(fmt.Sprintf("%s%s", newTag, data))
 			if err != nil {
 				utils.Errorf("Function file.Write error: %v", err)
 			}
@@ -191,7 +223,12 @@ func SaveTagsFormImage(config ImageConfig) {
 			return response, false
 		}
 
+		utils.Infof("Number of labels after analysis: %d", len(tags))
 		for tag, score := range tags {
+			tag = strings.Replace(tag, "_", " ", -1)
+			if config.CheckSkipTags(tag) {
+				continue
+			}
 			response.Tags = append(response.Tags, struct {
 				Tag        string  `json:"tag"`
 				Confidence float64 `json:"confidence"`
@@ -200,6 +237,7 @@ func SaveTagsFormImage(config ImageConfig) {
 				Confidence: score,
 			})
 		}
+		utils.Infof("Number of labels after filtering: %d", len(response.Tags))
 
 		return response, true
 	}
@@ -207,7 +245,7 @@ func SaveTagsFormImage(config ImageConfig) {
 	files, _ := filepath.Glob(filepath.Join(imagePath, "*", "*.jpg"))
 	for _, file := range files {
 		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
-		if tagName == config.GetSaveName() {
+		if tagName == config.GetSavePathName() {
 			utils.Warnf("Skip tag file: %s", savePath)
 			continue
 		}
@@ -216,6 +254,10 @@ func SaveTagsFormImage(config ImageConfig) {
 			savePath = filepath.Join(imagePath, tagName, filepath.Base(file))
 			savePath = strings.TrimSuffix(savePath, ".jpg") + "." + string(config.GetSaveType())
 
+			if !config.CheckPathFilter(file) {
+				continue
+			}
+
 			responses.TagName = tagName
 			responses.TagPath = savePath
 
@@ -223,6 +265,7 @@ func SaveTagsFormImage(config ImageConfig) {
 				responses.Results = append(responses.Results, response)
 
 				tagString, tagNum := tidyTags(responses)
+				utils.Infof("Number of labels after tidying: %d", tagNum)
 				if config.GetShowTags() && tagNum > 0 {
 					utils.Infof("Show tags: %s", tagString)
 				}
@@ -262,4 +305,14 @@ func SaveTagsFormImage(config ImageConfig) {
 	if responses.TagString != "" {
 		saveResponses(responses.TagPath)
 	}
+}
+
+func hasClothingTag(text string, skip []string) bool {
+	pattern := `(?i)\b(` + strings.Join(skip, "|") + `)\b`
+	matched, err := regexp.MatchString(pattern, text)
+	if err != nil {
+		utils.Errorf("Regex compilation error: ", err)
+		return false
+	}
+	return matched
 }

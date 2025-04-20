@@ -8,22 +8,29 @@ import (
 	"github.com/GolangProject/PixivCrawler/common/utils"
 )
 
+type poseConfig struct {
+	PoseKey             string
+	GroupNum, MemberNum int
+}
+
 type SDRequest struct {
 	mainModleName      string
 	loraModles         map[string]float64
-	extendTags         map[string]string
+	extendTags         map[string][]string
 	batch_size, n_iter int
+	fixhand, fixface   bool
+	posePaths          map[string]*poseConfig
 	alwaysonScripts    map[string]interface{}
 }
 
 type SDDownload struct {
-	saveName   string
-	basePath   string
-	inputPath  string
-	outputPath string
-	forEach    bool
-	saveType   SaveType
-	tagConfigs map[string]tagConfig
+	savePathName string
+	basePath     string
+	inputPath    string
+	outputPath   string
+	forEach      bool
+	saveType     SaveType
+	tagConfigs   map[string]tagConfig
 }
 
 type AnalyzeType int
@@ -44,6 +51,9 @@ type ImageConfig struct {
 	sdRequestConfig  SDRequest
 	sdDownloadConfig SDDownload
 	showTags         bool
+	containPathName  []string
+	ignorePathName   []string
+	skipTags         []string
 	analyzeType      AnalyzeType
 }
 
@@ -66,19 +76,23 @@ func InitImageConfig(mainModle string, basePaths ...string) ImageConfig {
 			n_iter:          1,
 			alwaysonScripts: make(map[string]interface{}),
 			loraModles:      make(map[string]float64),
-			extendTags:      make(map[string]string),
+			extendTags:      make(map[string][]string),
+			fixhand:         false,
+			fixface:         false,
+			posePaths:       make(map[string]*poseConfig),
 		},
 		sdDownloadConfig: SDDownload{
-			basePath:   basePath,
-			inputPath:  inputPath,
-			outputPath: outputPath,
-			saveName:   "NewImage",
-			forEach:    false,
-			saveType:   Save_Json,
-			tagConfigs: make(map[string]tagConfig),
+			basePath:     basePath,
+			inputPath:    inputPath,
+			outputPath:   outputPath,
+			savePathName: "NewImage",
+			forEach:      false,
+			saveType:     Save_Json,
+			tagConfigs:   make(map[string]tagConfig),
 		},
 		showTags:    false,
 		analyzeType: Analyze_Deepdanbooru,
+		skipTags:    []string{},
 	}
 }
 
@@ -98,16 +112,28 @@ func (c *ImageConfig) AddLoraModel(n string, f float64) {
 	c.sdRequestConfig.loraModles[n] = f
 }
 
-func (c *ImageConfig) SetExtendTags(extendTags map[string]string) {
-	c.sdRequestConfig.extendTags = extendTags
+func (c *ImageConfig) AddExtendTags(extendTags []string, names ...string) {
+	name := ""
+	if len(names) > 0 {
+		name = names[0]
+	}
+	c.sdRequestConfig.extendTags[name] = extendTags
 }
 
-func (c *ImageConfig) AddtExtendTag(n string, e string) {
-	c.sdRequestConfig.extendTags[n] = e
+func (c *ImageConfig) AddExtendTag(extendTag string, names ...string) {
+	name := ""
+	if len(names) > 0 {
+		name = names[0]
+	}
+	c.sdRequestConfig.extendTags[name] = append(c.sdRequestConfig.extendTags[name], extendTag)
 }
 
-func (c *ImageConfig) GetExtendTags() map[string]string {
-	return c.sdRequestConfig.extendTags
+func (c *ImageConfig) GetExtendTags(names ...string) []string {
+	name := ""
+	if len(names) > 0 {
+		name = names[0]
+	}
+	return c.sdRequestConfig.extendTags[name]
 }
 
 func (c *ImageConfig) GetBasePath() string {
@@ -130,12 +156,12 @@ func (c *ImageConfig) SetInputPath(inputPath string) {
 	c.sdDownloadConfig.inputPath = inputPath
 }
 
-func (c *ImageConfig) SetSaveName(saveName string) {
-	c.sdDownloadConfig.saveName = saveName
+func (c *ImageConfig) SetSavePathName(saveName string) {
+	c.sdDownloadConfig.savePathName = saveName
 }
 
-func (c *ImageConfig) GetSaveName() string {
-	return c.sdDownloadConfig.saveName
+func (c *ImageConfig) GetSavePathName() string {
+	return c.sdDownloadConfig.savePathName
 }
 
 func (c *ImageConfig) SetBatchSize(batch_size int) {
@@ -175,6 +201,36 @@ func (c *ImageConfig) AddAlwaysonScripts(key string, script interface{}) {
 		c.sdRequestConfig.alwaysonScripts = make(map[string]interface{})
 	}
 	c.sdRequestConfig.alwaysonScripts[key] = script
+}
+
+func (c *ImageConfig) GetFixhand() bool {
+	return c.sdRequestConfig.fixhand
+}
+
+func (c *ImageConfig) SetFixhand(fixhand bool) {
+	c.sdRequestConfig.fixhand = fixhand
+}
+
+func (c *ImageConfig) GetFixface() bool {
+	return c.sdRequestConfig.fixface
+}
+
+func (c *ImageConfig) SetFixface(fixface bool) {
+	c.sdRequestConfig.fixface = fixface
+}
+
+func (c *ImageConfig) GetPoseConfigs() map[string]*poseConfig {
+	return c.sdRequestConfig.posePaths
+}
+
+func (c *ImageConfig) AddPoseConfig(k, v string) {
+	if p, ok := c.sdRequestConfig.posePaths[k]; ok {
+		p.PoseKey = v
+	} else {
+		c.sdRequestConfig.posePaths[k] = &poseConfig{
+			PoseKey: v,
+		}
+	}
 }
 
 func (c *ImageConfig) GetAnalyzeType() AnalyzeType {
@@ -217,14 +273,46 @@ func (c *ImageConfig) AddTagConfig(tagName, tagPath string) {
 	}
 }
 
-func (c *ImageConfig) CheckTagConfig(path string) string {
-	basePath := strings.TrimSuffix(path, filepath.Base(path))
-	for _, e := range c.sdDownloadConfig.tagConfigs {
-		if filepath.Clean(e.tagSrcPath) == filepath.Clean(basePath) {
-			return e.tagName
+func (c *ImageConfig) AddContainPathName(path string) {
+	c.containPathName = append(c.containPathName, path)
+}
+
+func (c *ImageConfig) AddIgnorePathName(path string) {
+	c.ignorePathName = append(c.ignorePathName, path)
+}
+
+func (c *ImageConfig) CheckPathFilter(path string) bool {
+	tagPath := strings.TrimSuffix(path, filepath.Base(path))
+	tagName := filepath.Base(tagPath)
+
+	for _, i := range c.ignorePathName {
+		if i == tagName {
+			return false
 		}
 	}
-	return ""
+
+	if len(c.containPathName) == 0 {
+		return true
+	}
+
+	for _, i := range c.containPathName {
+		if i == tagName {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *ImageConfig) SetSkipTags(skipTags []string) {
+	c.skipTags = skipTags
+}
+
+func (c *ImageConfig) AddSkipTags(skipTags []string) {
+	c.skipTags = append(c.skipTags, skipTags...)
+}
+
+func (c *ImageConfig) CheckSkipTags(input string) bool {
+	return hasClothingTag(input, c.skipTags)
 }
 
 type modelConfig struct {
@@ -241,10 +329,10 @@ type tagConfig struct {
 }
 
 type TrainConfig struct {
-	basePath, examplePath string
-	limit                 int
-	modelConfig           modelConfig
-	tagConfigs            map[string]tagConfig
+	basePath    string
+	limit       int
+	modelConfig modelConfig
+	tagConfigs  map[string]tagConfig
 }
 
 // kohya-ss: https://github.com/kohya-ss
@@ -275,10 +363,9 @@ func NewTrainConfig(modelName, pretrainedPath, inputDir string, basePaths ...str
 			outputDir:      outputDir,
 			logDir:         logDir,
 		},
-		tagConfigs:  make(map[string]tagConfig),
-		limit:       0,
-		basePath:    basePath,
-		examplePath: filepath.Join(basePath, "scripts", "example.json"),
+		tagConfigs: make(map[string]tagConfig),
+		limit:      0,
+		basePath:   basePath,
 	}
 }
 
@@ -300,14 +387,6 @@ func (c *TrainConfig) GetOutputDir() string {
 
 func (c *TrainConfig) GetLogDir() string {
 	return c.modelConfig.logDir
-}
-
-func (c *TrainConfig) GetExamplePath() string {
-	return c.examplePath
-}
-
-func (c *TrainConfig) SetExamplePath(examplePath string) {
-	c.examplePath = examplePath
 }
 
 func (c *TrainConfig) GetBasePath() string {
