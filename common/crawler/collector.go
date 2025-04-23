@@ -63,7 +63,7 @@ func NewManga(title, id string, url []string) *Manga {
 	}
 }
 
-func GetImageUrl(id string, config CrawlerConfig) []string {
+func GetImageUrl(id string, config *CrawlerConfig) []string {
 	var ret []string
 
 	target := fmt.Sprintf("%s/%s/pages", Global_Illust, id)
@@ -90,7 +90,8 @@ func GetImageUrl(id string, config CrawlerConfig) []string {
 	var resp ImageResponse
 	err = json.Unmarshal([]byte(decodeToUTF8(res, decodeZip(res))), &resp)
 	if err != nil {
-		utils.Error(err)
+		utils.Errorf("Function Unmarshal Error: %v", err)
+		return []string{}
 	}
 
 	for _, d := range resp.Body {
@@ -100,7 +101,7 @@ func GetImageUrl(id string, config CrawlerConfig) []string {
 	return ret
 }
 
-func GetMangaIllus(config CrawlerConfig, isDebug bool) (ret []*Manga) {
+func GetMangaIllus(config *CrawlerConfig, isDebug bool) (ret []*Manga) {
 	id := fmt.Sprintf("%d", config.GetIllust())
 	urls := GetImageUrl(id, config)
 	ret = append(ret, NewManga("", id, urls))
@@ -114,11 +115,11 @@ func GetMangaIllus(config CrawlerConfig, isDebug bool) (ret []*Manga) {
 	return
 }
 
-func GetMangaTag(input string, config CrawlerConfig, isDebug bool) (ret []*Manga) {
+func GetMangaTag(input string, config *CrawlerConfig, isDebug bool) (ret []*Manga) {
 	var resp TagResponse
 	err := json.Unmarshal([]byte(input), &resp)
 	if err != nil {
-		utils.Error(err)
+		utils.Errorf("Function Unmarshal Error: %v", err)
 		return
 	}
 
@@ -140,11 +141,11 @@ func GetMangaTag(input string, config CrawlerConfig, isDebug bool) (ret []*Manga
 	return
 }
 
-func GetMangaUser(input string, config CrawlerConfig, isDebug bool) (ret []*Manga) {
+func GetMangaUser(input string, config *CrawlerConfig, isDebug bool) (ret []*Manga) {
 	var resp UserResponse
 	err := json.Unmarshal([]byte(input), &resp)
 	if err != nil {
-		utils.Error(err)
+		utils.Errorf("Function Unmarshal Error: %v", err)
 		return
 	}
 
@@ -172,7 +173,7 @@ func GetMangaUser(input string, config CrawlerConfig, isDebug bool) (ret []*Mang
 	return
 }
 
-func Collector(config CrawlerConfig) []*Manga {
+func Collector(config *CrawlerConfig) []*Manga {
 	var ret []*Manga
 
 	getBody := func(target string) []byte {

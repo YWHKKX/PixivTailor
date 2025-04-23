@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -24,8 +23,17 @@ var GlobalTag_Negative []string = []string{
 	"malformed limbs", "extra arms", "out of focus, blurry",
 	"(crowd:1.3)", "(congested:1.2)", "no merged poses",
 	"distinct postures", "blurry", "lowres", "jpeg artifacts",
-	"watermark",
+	"watermark", "extra legs", "(asymmetrical legs:1.3)",
+	"blurry legs", "fused thighs", "(disconnected joints:1.2)",
 }
+
+var GlobalTag_SpecialBackground []string = []string{
+	"no background", "solid background", "studio lighting",
+	"plain background", "no environment", "empty space",
+	"void background", "clean backdrop", "isolated subject",
+}
+
+var GlobalTag_Character []string = []string{}
 
 var GlobalTag_Clothing []string = []string{
 	"clothing", "underwear", "dress", "tunic",
@@ -34,7 +42,7 @@ var GlobalTag_Clothing []string = []string{
 	"heels", "apron", "moccasin", "slippers",
 	"bow", "swimsuit", "bathing suit", "bikini",
 	"uniform", "stockings", "suspenders", "handkerchief",
-	"scrunchie", "slip", "petticoat",
+	"scrunchie", "slip", "petticoat", "sleeves",
 	"bowtie", "stays", "corset", "panties",
 	"sleeve", "mantle", "cloak", "bathrobe",
 	"socks", "pocket", "cuff", "blouse",
@@ -42,7 +50,13 @@ var GlobalTag_Clothing []string = []string{
 	"chalkboard", "belt", "underskirt", "briefs",
 	"shoes", "brassiere", "bra", "corselet",
 	"top", "skirt", "coat", "sweater",
+	"earrings", "jewelry", "capelet", "hair ornament",
+	"miniskirt", "leotard", "pantyhose", "gloves",
+	"collar", "leotard", "fishnets", "garter",
 }
+
+var GlobalTag_Pose []string = []string{}
+var GlobalTag_Background []string = []string{}
 
 type DeepDanbooruResponses struct {
 	TagName   string                 `json:"tag_name"`
@@ -59,16 +73,16 @@ type DeepDanbooruResponse struct {
 	} `json:"tags"`
 }
 
-func AnalyzeImage(config ImageConfig, cmdPath, imagePath string) map[string]float64 {
+func AnalyzeImage(config *ImageConfig, cmdPath, imagePath string) map[string]float64 {
 	if config.GetAnalyzeType() == Analyze_Deepdanbooru {
-		return AnalyzeImageByDeepdanbooru(cmdPath, imagePath)
+		return analyzeImageByDeepdanbooru(cmdPath, imagePath)
 	} else if config.GetAnalyzeType() == Analyze_Webuiwd14tagger {
-		return AnalyzeImageByWebuiwd14tagger(imagePath)
+		return analyzeImageByWebuiwd14tagger(imagePath)
 	}
 	return make(map[string]float64)
 }
 
-func AnalyzeImageByWebuiwd14tagger(imagePath string) map[string]float64 {
+func analyzeImageByWebuiwd14tagger(imagePath string) map[string]float64 {
 	url := SD_API_TAGGER
 
 	fileData, err := os.ReadFile(imagePath)
@@ -109,7 +123,7 @@ func AnalyzeImageByWebuiwd14tagger(imagePath string) map[string]float64 {
 	var result map[string]map[string]float64
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		utils.Error(err)
+		utils.Errorf("Function Unmarshal Error: %v", err)
 		return nil
 	}
 
@@ -118,7 +132,7 @@ func AnalyzeImageByWebuiwd14tagger(imagePath string) map[string]float64 {
 
 // deepdanbooru: https://github.com/KichangKim/DeepDanbooru
 // deepdanbooru-v3-20211112-sgd-e28: https://github.com/KichangKim/DeepDanbooru/releases/tag/v3-20211112-sgd-e28
-func AnalyzeImageByDeepdanbooru(cmdPath, imagePath string) map[string]float64 {
+func analyzeImageByDeepdanbooru(cmdPath, imagePath string) map[string]float64 {
 	cmd := exec.Command("deepdanbooru", "evaluate", imagePath, "--project-path",
 		filepath.Join(cmdPath, "deepdanbooru-v3-20211112-sgd-e28"), "--allow-folder")
 	output, err := cmd.CombinedOutput()
@@ -171,8 +185,12 @@ func tidyTags(responses *DeepDanbooruResponses) (string, int) {
 	return strings.Join(ret, ","), len(ret)
 }
 
-func SaveTagsFormImage(config ImageConfig) {
+func SaveTagsFormImage(config *ImageConfig) {
 	var responses *DeepDanbooruResponses = &DeepDanbooruResponses{}
+
+	if config.GetDeleteTags() {
+		DeleteTags(config)
+	}
 
 	cmdPath := filepath.Join(config.GetBasePath(), "models")
 	imagePath := filepath.Join(config.GetBasePath(), "images")
@@ -195,6 +213,10 @@ func SaveTagsFormImage(config ImageConfig) {
 			}
 		case Save_Txt:
 			newTag := ""
+			tagName := filepath.Base(strings.TrimSuffix(path, filepath.Base(path)))
+			for _, e := range config.GetExtendTags(tagName) {
+				newTag += fmt.Sprintf("%s,", e)
+			}
 			for _, e := range config.GetExtendTags("") {
 				newTag += fmt.Sprintf("%s,", e)
 			}
@@ -246,7 +268,7 @@ func SaveTagsFormImage(config ImageConfig) {
 	for _, file := range files {
 		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
 		if tagName == config.GetSavePathName() {
-			utils.Warnf("Skip tag file: %s", savePath)
+			utils.Warnf("Skip tag file: %s", file)
 			continue
 		}
 
@@ -262,7 +284,7 @@ func SaveTagsFormImage(config ImageConfig) {
 			responses.TagPath = savePath
 
 			if response, ok := buildResponse(savePath, file); ok {
-				responses.Results = append(responses.Results, response)
+				responses.Results = []DeepDanbooruResponse{response}
 
 				tagString, tagNum := tidyTags(responses)
 				utils.Infof("Number of labels after tidying: %d", tagNum)
@@ -307,12 +329,24 @@ func SaveTagsFormImage(config ImageConfig) {
 	}
 }
 
-func hasClothingTag(text string, skip []string) bool {
-	pattern := `(?i)\b(` + strings.Join(skip, "|") + `)\b`
-	matched, err := regexp.MatchString(pattern, text)
-	if err != nil {
-		utils.Errorf("Regex compilation error: ", err)
-		return false
+func DeleteTags(config *ImageConfig) {
+	imagePath := filepath.Join(config.GetBasePath(), "images")
+
+	files, _ := filepath.Glob(filepath.Join(imagePath, "*", "*.txt"))
+	for _, file := range files {
+		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
+		if tagName == config.GetSavePathName() {
+			utils.Warnf("Skip tag file: %s", file)
+			continue
+		}
+
+		if !config.CheckPathFilter(file) {
+			continue
+		}
+
+		utils.Infof("Delete tag file: %s", file)
+		if err := os.RemoveAll(file); err != nil {
+			utils.Errorf("Function os.RemoveAll error: %v", err)
+		}
 	}
-	return matched
 }

@@ -5,10 +5,10 @@ import (
 )
 
 type Crawler struct {
-	CrawlerConfig
+	*CrawlerConfig
 }
 
-func NewCrawler(config CrawlerConfig) *Crawler {
+func NewCrawler(config *CrawlerConfig) *Crawler {
 	return &Crawler{CrawlerConfig: config}
 }
 

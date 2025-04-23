@@ -13,11 +13,11 @@ func Test_TrainModel(t *testing.T) {
 	basePath := filepath.Join(currntPath, "./../..")
 
 	modelName := "re0"
-	pretrainedPath := ""
+	pretrainedPath := "D:/PythonProject/stable-diffusion-webui/models/Stable-diffusion/chosenMix_bakedVae.safetensors"
 	inputDir := filepath.Join(basePath, "images", "Train")
 
 	config := ai.NewTrainConfig(modelName, pretrainedPath, inputDir, basePath)
-	config.SetLimit(40)
+	config.SetLimit(60)
 
 	config.AddTagConfig(
 		"rem", filepath.Join(basePath, "images", "Rem"), 10,
@@ -30,6 +30,15 @@ func Test_TrainModel(t *testing.T) {
 	)
 	config.AddTagConfig(
 		"emilia", filepath.Join(basePath, "images", "Emilia"), 10,
+	)
+	config.AddTagConfig(
+		"priscilla", filepath.Join(basePath, "images", "Priscilla"), 10,
+	)
+	config.AddTagConfig(
+		"felt", filepath.Join(basePath, "images", "Felt"), 10,
+	)
+	config.AddTagConfig(
+		"elsa", filepath.Join(basePath, "images", "Elsa"), 10,
 	)
 
 	ai.TrainModel(config)

@@ -1,8 +1,10 @@
 package ai
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/GolangProject/PixivCrawler/common/utils"
@@ -14,13 +16,11 @@ type poseConfig struct {
 }
 
 type SDRequest struct {
-	mainModleName      string
-	loraModles         map[string]float64
-	extendTags         map[string][]string
-	batch_size, n_iter int
-	fixhand, fixface   bool
-	posePaths          map[string]*poseConfig
-	alwaysonScripts    map[string]interface{}
+	mainModleName             string
+	batch_size, n_iter        int
+	fixpose, fixhand, fixface bool
+	posePaths                 map[string]*poseConfig
+	alwaysonScripts           map[string]interface{}
 }
 
 type SDDownload struct {
@@ -31,6 +31,9 @@ type SDDownload struct {
 	forEach      bool
 	saveType     SaveType
 	tagConfigs   map[string]tagConfig
+	loraModles   map[string]float64
+	loraTags     map[string][]string
+	extendTags   map[string][]string
 }
 
 type AnalyzeType int
@@ -51,6 +54,7 @@ type ImageConfig struct {
 	sdRequestConfig  SDRequest
 	sdDownloadConfig SDDownload
 	showTags         bool
+	deleteTags       bool
 	containPathName  []string
 	ignorePathName   []string
 	skipTags         []string
@@ -60,23 +64,48 @@ type ImageConfig struct {
 // stable-diffusion-webui: https://github.com/AUTOMATIC1111/stable-diffusion-webui
 // webui.bat --api
 
-func InitImageConfig(mainModle string, basePaths ...string) ImageConfig {
+func InitImageConfig(mainModle string, basePaths ...string) *ImageConfig {
 	basePath, _ := os.Getwd()
 	if len(basePaths) > 0 {
 		basePath = basePaths[0]
 	}
 
+	tagGlobalPath := filepath.Join(basePath, "scripts", "global_tag.json")
+	if _, err := os.Stat(tagGlobalPath); err == nil {
+		categorys := InitCategories()
+		utils.Warnf("GlobalTag exists: %s, start configuration", tagGlobalPath)
+		fileData, err := os.ReadFile(tagGlobalPath)
+		if err != nil {
+			utils.Errorf("Read File Error: %v", err)
+		}
+		if err := json.Unmarshal(fileData, &categorys); err != nil {
+			utils.Errorf("Function Unmarshal Error: %v", err)
+		}
+		for _, category := range categorys {
+			if category.Kind == CategoryType_Clothing {
+				GlobalTag_Clothing = append(GlobalTag_Clothing, category.Keywords...)
+			}
+			if category.Kind == CategoryType_Character {
+				GlobalTag_Character = append(GlobalTag_Character, category.Keywords...)
+			}
+			if category.Kind == CategoryType_Background {
+				GlobalTag_Background = append(GlobalTag_Background, category.Keywords...)
+			}
+			if category.Kind == CategoryType_Pose {
+				GlobalTag_Pose = append(GlobalTag_Pose, category.Keywords...)
+			}
+		}
+	}
+
 	inputPath := filepath.Join(basePath, "images")
 	outputPath := filepath.Join(basePath, "images")
 
-	return ImageConfig{
+	return &ImageConfig{
 		sdRequestConfig: SDRequest{
 			mainModleName:   mainModle,
 			batch_size:      1,
 			n_iter:          1,
 			alwaysonScripts: make(map[string]interface{}),
-			loraModles:      make(map[string]float64),
-			extendTags:      make(map[string][]string),
 			fixhand:         false,
 			fixface:         false,
 			posePaths:       make(map[string]*poseConfig),
@@ -89,8 +118,12 @@ func InitImageConfig(mainModle string, basePaths ...string) ImageConfig {
 			forEach:      false,
 			saveType:     Save_Json,
 			tagConfigs:   make(map[string]tagConfig),
+			loraModles:   make(map[string]float64),
+			loraTags:     make(map[string][]string),
+			extendTags:   make(map[string][]string),
 		},
 		showTags:    false,
+		deleteTags:  false,
 		analyzeType: Analyze_Deepdanbooru,
 		skipTags:    []string{},
 	}
@@ -100,16 +133,17 @@ func (c *ImageConfig) GetMainModelName() string {
 	return c.sdRequestConfig.mainModleName
 }
 
-func (c *ImageConfig) SetLoraModel(loraModle map[string]float64) {
-	c.sdRequestConfig.loraModles = loraModle
-}
-
 func (c *ImageConfig) GetLoraModel() map[string]float64 {
-	return c.sdRequestConfig.loraModles
+	return c.sdDownloadConfig.loraModles
 }
 
-func (c *ImageConfig) AddLoraModel(n string, f float64) {
-	c.sdRequestConfig.loraModles[n] = f
+func (c *ImageConfig) AddLoraModel(n string, f float64, tags []string) {
+	c.sdDownloadConfig.loraModles[n] = f
+	c.sdDownloadConfig.loraTags[n] = tags
+}
+
+func (c *ImageConfig) GetLoraTags(name string) []string {
+	return c.sdDownloadConfig.loraTags[name]
 }
 
 func (c *ImageConfig) AddExtendTags(extendTags []string, names ...string) {
@@ -117,15 +151,7 @@ func (c *ImageConfig) AddExtendTags(extendTags []string, names ...string) {
 	if len(names) > 0 {
 		name = names[0]
 	}
-	c.sdRequestConfig.extendTags[name] = extendTags
-}
-
-func (c *ImageConfig) AddExtendTag(extendTag string, names ...string) {
-	name := ""
-	if len(names) > 0 {
-		name = names[0]
-	}
-	c.sdRequestConfig.extendTags[name] = append(c.sdRequestConfig.extendTags[name], extendTag)
+	c.sdDownloadConfig.extendTags[name] = extendTags
 }
 
 func (c *ImageConfig) GetExtendTags(names ...string) []string {
@@ -133,7 +159,7 @@ func (c *ImageConfig) GetExtendTags(names ...string) []string {
 	if len(names) > 0 {
 		name = names[0]
 	}
-	return c.sdRequestConfig.extendTags[name]
+	return c.sdDownloadConfig.extendTags[name]
 }
 
 func (c *ImageConfig) GetBasePath() string {
@@ -180,6 +206,14 @@ func (c *ImageConfig) GetNiter() int {
 	return c.sdRequestConfig.n_iter
 }
 
+func (c *ImageConfig) GetDeleteTags() bool {
+	return c.deleteTags
+}
+
+func (c *ImageConfig) SetDeleteTags(deleteTags bool) {
+	c.deleteTags = deleteTags
+}
+
 func (c *ImageConfig) GetShowTags() bool {
 	return c.showTags
 }
@@ -208,6 +242,9 @@ func (c *ImageConfig) GetFixhand() bool {
 }
 
 func (c *ImageConfig) SetFixhand(fixhand bool) {
+	if c.GetFixpose() {
+		utils.Warn("Fixpose has already been set, it is not recommended to set FixFace or FixHand")
+	}
 	c.sdRequestConfig.fixhand = fixhand
 }
 
@@ -216,7 +253,22 @@ func (c *ImageConfig) GetFixface() bool {
 }
 
 func (c *ImageConfig) SetFixface(fixface bool) {
+	if c.GetFixpose() {
+		utils.Warn("Fixpose has already been set, it is not recommended to set FixFace or FixHand")
+	}
 	c.sdRequestConfig.fixface = fixface
+}
+
+func (c *ImageConfig) GetFixpose() bool {
+	return c.sdRequestConfig.fixpose
+}
+
+func (c *ImageConfig) SetFixpose(fixpose bool) {
+	if c.GetFixface() || c.GetFixhand() {
+		utils.Warnf("FixFace or FixHand has already been set, it is not recommended to set Fixpose")
+	}
+
+	c.sdRequestConfig.fixpose = fixpose
 }
 
 func (c *ImageConfig) GetPoseConfigs() map[string]*poseConfig {
@@ -224,6 +276,9 @@ func (c *ImageConfig) GetPoseConfigs() map[string]*poseConfig {
 }
 
 func (c *ImageConfig) AddPoseConfig(k, v string) {
+	if c.GetFixpose() {
+		utils.Warn("Fixpose has already been set, adding a new PoseConfig may cause slow image generation")
+	}
 	if p, ok := c.sdRequestConfig.posePaths[k]; ok {
 		p.PoseKey = v
 	} else {
@@ -312,8 +367,28 @@ func (c *ImageConfig) AddSkipTags(skipTags []string) {
 }
 
 func (c *ImageConfig) CheckSkipTags(input string) bool {
-	return hasClothingTag(input, c.skipTags)
+	skipTags := strings.Join(c.skipTags, "|")
+	if skipTags == "" {
+		return false
+	}
+	pattern := `(?i)\b(` + skipTags + `)\b`
+	matched, err := regexp.MatchString(pattern, input)
+	if err != nil {
+		utils.Errorf("Regex compilation error: ", err)
+		return false
+	}
+	return matched
 }
+
+type TrainType int
+
+const (
+	TrainSpeedAuto   TrainType = iota
+	TrainSpeedSlow             // 100 images ≈ 7h
+	TrainSpeedFast             // 100 images ≈ 3h
+	TrainQualityLow            // 100 images ≈ 1h
+	TrainQualityHigh           // 100 images ≈ 8h
+)
 
 type modelConfig struct {
 	modelName      string // output_name
@@ -329,16 +404,18 @@ type tagConfig struct {
 }
 
 type TrainConfig struct {
-	basePath    string
-	limit       int
-	modelConfig modelConfig
-	tagConfigs  map[string]tagConfig
+	basePath      string
+	limit         int
+	modelConfig   modelConfig
+	trainType     TrainType
+	trainImageNum int
+	tagConfigs    map[string]tagConfig
 }
 
 // kohya-ss: https://github.com/kohya-ss
 // gui.bat --listen 127.0.0.1 --server_port 7860 --inbrowser --share
 
-func NewTrainConfig(modelName, pretrainedPath, inputDir string, basePaths ...string) TrainConfig {
+func NewTrainConfig(modelName, pretrainedPath, inputDir string, basePaths ...string) *TrainConfig {
 	basePath, _ := os.Getwd()
 	if len(basePaths) > 0 {
 		basePath = basePaths[0]
@@ -355,7 +432,7 @@ func NewTrainConfig(modelName, pretrainedPath, inputDir string, basePaths ...str
 		panic(err)
 	}
 
-	return TrainConfig{
+	return &TrainConfig{
 		modelConfig: modelConfig{
 			modelName:      modelName,
 			pretrainedPath: filepath.Join(pretrainedPath),
@@ -363,9 +440,11 @@ func NewTrainConfig(modelName, pretrainedPath, inputDir string, basePaths ...str
 			outputDir:      outputDir,
 			logDir:         logDir,
 		},
-		tagConfigs: make(map[string]tagConfig),
-		limit:      0,
-		basePath:   basePath,
+		tagConfigs:    make(map[string]tagConfig),
+		limit:         0,
+		basePath:      basePath,
+		trainType:     TrainSpeedAuto,
+		trainImageNum: 0,
 	}
 }
 
@@ -428,6 +507,27 @@ func (c *TrainConfig) CheckLimit(index int) bool {
 	return true
 }
 
+func (t *TrainConfig) GetTrainType() TrainType {
+	if t.trainType == TrainSpeedAuto {
+		if t.trainImageNum < 100 {
+			utils.Info("The training set is less than 100 images, use the TrainSpeedFast mode")
+			return TrainSpeedFast
+		} else {
+			utils.Info("The training set is more than 100 images, use the TrainSpeedSlow mode")
+			return TrainSpeedSlow
+		}
+	}
+	return t.trainType
+}
+
+func (t *TrainConfig) SetTrainType(trainType TrainType) {
+	t.trainType = trainType
+}
+
+func (t *TrainConfig) UpTrainImageNum(num int) {
+	t.trainImageNum += num
+}
+
 func (t *tagConfig) GetTagName() string {
 	return t.tagName
 }
@@ -438,4 +538,84 @@ func (t *tagConfig) GetTagSrcPath() string {
 
 func (t *tagConfig) GetTimes() int {
 	return t.times
+}
+
+type CategoryConfig struct {
+	keyString                       []string
+	keyIndex                        int
+	basePath                        string
+	outputPath                      string
+	containPathName, ignorePathName []string
+	showTags                        bool
+}
+
+// openai: https://platform.openai.com/settings/organization/api-keys
+
+func NewCategoryConfig(keyString []string, outputPath string, basePaths ...string) *CategoryConfig {
+	basePath, _ := os.Getwd()
+
+	if len(basePaths) > 0 {
+		basePath = basePaths[0]
+	}
+	return &CategoryConfig{
+		keyString:  keyString,
+		keyIndex:   0,
+		basePath:   basePath,
+		outputPath: filepath.Join(basePath, outputPath),
+		showTags:   false,
+	}
+}
+
+func (c *CategoryConfig) GetKeyString() string {
+	c.keyIndex++
+	if c.keyIndex >= len(c.keyString) {
+		c.keyIndex = 0
+	}
+	return c.keyString[c.keyIndex]
+}
+
+func (c *CategoryConfig) GetBasePath() string {
+	return c.basePath
+}
+
+func (c *CategoryConfig) GetOutputPath() string {
+	return c.outputPath
+}
+
+func (c *CategoryConfig) AddContainPathName(path string) {
+	c.containPathName = append(c.containPathName, path)
+}
+
+func (c *CategoryConfig) AddIgnorePathName(path string) {
+	c.ignorePathName = append(c.ignorePathName, path)
+}
+
+func (c *CategoryConfig) CheckPathFilter(path string) bool {
+	tagPath := strings.TrimSuffix(path, filepath.Base(path))
+	tagName := filepath.Base(tagPath)
+
+	for _, i := range c.ignorePathName {
+		if i == tagName {
+			return false
+		}
+	}
+
+	if len(c.containPathName) == 0 {
+		return true
+	}
+
+	for _, i := range c.containPathName {
+		if i == tagName {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *CategoryConfig) SetShowTags(showTags bool) {
+	c.showTags = showTags
+}
+
+func (c *CategoryConfig) GetShowTags() bool {
+	return c.showTags
 }

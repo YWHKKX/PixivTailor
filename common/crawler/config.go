@@ -57,13 +57,13 @@ type CrawlerConfig struct {
 }
 
 // https://www.pixiv.net/ajax/search/artworks/{tag}?word={tag}&order={order}&mode={mode}&p=1&s_mode=s_tag_full&type={mode}&lang=zh
-func InitTagConfig(tag string, order Order, mode Mode, basePaths ...string) CrawlerConfig {
+func InitTagConfig(tag string, order Order, mode Mode, basePaths ...string) *CrawlerConfig {
 	basePath, _ := os.Getwd()
 	if len(basePaths) > 0 {
 		basePath = basePaths[0]
 	}
 
-	return CrawlerConfig{
+	return &CrawlerConfig{
 		configType: SEARCH_BY_TAG,
 		searchConfig: searchConfig{
 			tag:   tag,
@@ -77,13 +77,13 @@ func InitTagConfig(tag string, order Order, mode Mode, basePaths ...string) Craw
 }
 
 // https://www.pixiv.net/ajax/user/{userid}/works/latest
-func InitUserConfig(user int, basePaths ...string) CrawlerConfig {
+func InitUserConfig(user int, basePaths ...string) *CrawlerConfig {
 	basePath, _ := os.Getwd()
 	if len(basePaths) > 0 {
 		basePath = basePaths[0]
 	}
 
-	return CrawlerConfig{
+	return &CrawlerConfig{
 		configType: SEARCH_BY_USER,
 		searchConfig: searchConfig{
 			user: user,
@@ -95,13 +95,13 @@ func InitUserConfig(user int, basePaths ...string) CrawlerConfig {
 }
 
 // https://www.pixiv.net/ajax/illust/{illustid}/pages
-func InitIllustConfig(illust int, basePaths ...string) CrawlerConfig {
+func InitIllustConfig(illust int, basePaths ...string) *CrawlerConfig {
 	basePath, _ := os.Getwd()
 	if len(basePaths) > 0 {
 		basePath = basePaths[0]
 	}
 
-	return CrawlerConfig{
+	return &CrawlerConfig{
 		configType: SEARCH_BY_Illust,
 		searchConfig: searchConfig{
 			illust: illust,

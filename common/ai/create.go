@@ -16,7 +16,7 @@ type SDResponse struct {
 	Images [][]byte `json:"images"`
 }
 
-func CreateImage_TXT2IMG(config ImageConfig) {
+func CreateImage_TXT2IMG(config *ImageConfig) {
 	inputPath := config.GetInputPath()
 	outputPath := config.GetOutputPath()
 
@@ -75,8 +75,8 @@ func CreateImage_TXT2IMG(config ImageConfig) {
 		switch config.GetSaveType() {
 		case Save_Json:
 			if err := json.Unmarshal(fileData, &responses); err != nil {
-				utils.Error(err)
-				panic(err)
+				utils.Errorf("Function Unmarshal Error: %v", err)
+				break
 			}
 			tagString = responses.TagString
 			tagNum = responses.TagNum
@@ -102,7 +102,7 @@ func CreateImage_TXT2IMG(config ImageConfig) {
 		}
 
 		utils.Infof("Try to request image for: %s,\tlen(tags) = %d", tagName, tagNum)
-		res := makeSDRequest(SD_API_TXT2IMG, tagString, config)
+		res := makeSDRequest(tagName, tagString, config)
 		if res == nil {
 			return
 		}
@@ -111,7 +111,8 @@ func CreateImage_TXT2IMG(config ImageConfig) {
 		body, _ := ioutil.ReadAll(res.Body)
 		err = json.Unmarshal(body, &SDResponse)
 		if err != nil {
-			utils.Error(err)
+			utils.Errorf("Function Unmarshal Error: %v", err)
+			return
 		}
 
 		ignoreNum := 0

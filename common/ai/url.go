@@ -54,19 +54,19 @@ Write the desired content here
 }
 */
 
-func makeSDRequest(url, tag string, config ImageConfig) *http.Response {
+func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Response {
 	loraString := ""
+	extendTags := ""
 	negativeString := strings.Join(GlobalTag_Negative, ",")
 
 	for l, f := range config.GetLoraModel() {
-		extendTags := ""
-		for _, e := range config.GetExtendTags(l) {
-			extendTags += e + ","
-		}
-		loraString += fmt.Sprintf("<lora:%s:%f>%s", l, f, extendTags)
+		loraString += fmt.Sprintf("<lora:%s:%f>%s,", l, f, strings.Join(config.GetLoraTags(l), ","))
+	}
+	for _, e := range config.GetExtendTags(tagName) {
+		extendTags += e + ","
 	}
 	for _, e := range config.GetExtendTags("") {
-		loraString += fmt.Sprintf("%s,", e)
+		extendTags += e + ","
 	}
 
 	args_ADetailer := []map[string]interface{}{}
@@ -91,6 +91,20 @@ func makeSDRequest(url, tag string, config ImageConfig) *http.Response {
 			"ad_denoising_strength": 0.5,
 			"ad_mask_blur":          8,
 			"ad_inpaint_padding":    64,
+		})
+	}
+	if config.GetFixpose() {
+		args_ADetailer = append(args_ADetailer, map[string]interface{}{
+			"ad_model": "none",
+			"controlnet": map[string]interface{}{
+				"enabled":        true,
+				"preprocessor":   "dw_openpose_full",
+				"model":          "control_v11p_sd15_openpose [cab727d4]",
+				"weight":         0.8,
+				"guidance_start": 0.0,
+				"guidance_end":   1.0,
+				"pixel_perfect":  true,
+			},
 		})
 	}
 
@@ -175,20 +189,20 @@ func makeSDRequest(url, tag string, config ImageConfig) *http.Response {
 
 	}
 
-	if args_ADetailer != nil {
+	if len(args_ADetailer) > 0 {
 		config.AddAlwaysonScripts("ADetailer", map[string]interface{}{
 			"args": args_ADetailer,
 		})
 	}
 
-	if args_ControlNet != nil {
+	if len(args_ControlNet) > 0 {
 		config.AddAlwaysonScripts("ControlNet", map[string]interface{}{
 			"args": args_ControlNet,
 		})
 	}
 
 	data := map[string]interface{}{
-		"prompt":               loraString + tag,
+		"prompt":               loraString + loraString + tagString,
 		"negative_prompt":      negativeString,
 		"seed":                 -1,
 		"sampler_name":         "DPM++ 2M SDE",
@@ -226,7 +240,7 @@ func makeSDRequest(url, tag string, config ImageConfig) *http.Response {
 
 	jsonData, _ := json.Marshal(data)
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", SD_API_TXT2IMG, bytes.NewBuffer(jsonData))
 	if err != nil {
 		utils.Errorf("Function http.NewRequest error: %v", err)
 		return nil

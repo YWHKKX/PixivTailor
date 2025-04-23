@@ -18,8 +18,8 @@ func Test_TXT2IMG(t *testing.T) {
 
 	config.SetSaveType(ai.Save_Txt)
 
-	config.AddLoraModel("re0", 0.8)
-	config.AddExtendTag("re0", "rem")
+	config.AddContainPathName("Rem")
+	config.AddLoraModel("re0", 0.8, []string{"rem"})
 	config.AddExtendTags([]string{"girl", "maid"})
 
 	config.AddAlwaysonScripts("ADetailer", map[string]interface{}{

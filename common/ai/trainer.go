@@ -12,13 +12,22 @@ import (
 	"github.com/GolangProject/PixivCrawler/common/utils"
 )
 
-func TrainModel(config TrainConfig) {
-	savePath, ok := buildModelConfig(config)
-	if savePath == "" || !ok {
+func TrainModel(config *TrainConfig) {
+	if err := os.RemoveAll(config.GetInputDir()); err != nil {
+		utils.Errorf("Function os.RemoveAll error: %v", err)
+	}
+
+	if err := os.MkdirAll(config.GetInputDir(), os.ModePerm); err != nil {
+		utils.Errorf("Function os.MkdirAll error: %v", err)
 		return
 	}
 
-	if ok = buildTrainingSet(config); !ok {
+	if ok := buildTrainingSet(config); !ok {
+		return
+	}
+
+	savePath, ok := buildModelConfig(config)
+	if savePath == "" || !ok {
 		return
 	}
 
@@ -28,15 +37,18 @@ func TrainModel(config TrainConfig) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		utils.Errorf("Python script execution error: %s", err)
+		utils.Errorf("Output: %s", string(output))
 		return
 	}
 	utils.Infof("Output: %s", string(output))
 }
 
-func buildTrainingSet(config TrainConfig) bool {
+func buildTrainingSet(config *TrainConfig) bool {
 	for _, c := range config.GetTagConfigs() {
 		srcDir := c.GetTagSrcPath()
 		destDir := filepath.Join(config.GetInputDir(), fmt.Sprintf("%d_%s", c.GetTimes(), c.GetTagName()))
+
+		utils.Infof("Start setting the %s training set", c.GetTagName())
 
 		copyFile := func(src, dst string) error {
 			srcFile, err := os.Open(src)
@@ -86,10 +98,8 @@ func buildTrainingSet(config TrainConfig) bool {
 			}
 			return nil
 		})
-
-		if !config.CheckLimit(index) {
-			utils.Infof("Limit reached: %d", config.GetLimit())
-		}
+		utils.Infof("TagName %s, total of %d images were read", c.GetTagName(), index)
+		config.UpTrainImageNum(index)
 
 		if err != nil {
 			utils.Errorf("Failed to traverse the folder: %v\n", err)
@@ -100,7 +110,7 @@ func buildTrainingSet(config TrainConfig) bool {
 	return true
 }
 
-func buildModelConfig(config TrainConfig) (string, bool) {
+func buildModelConfig(config *TrainConfig) (string, bool) {
 	var trainModelCofig map[string]interface{}
 
 	examplePath := filepath.Join(config.GetBasePath(), "scripts", "example.json")
@@ -111,7 +121,7 @@ func buildModelConfig(config TrainConfig) (string, bool) {
 	}
 
 	if err := json.Unmarshal(fileData, &trainModelCofig); err != nil {
-		utils.Error(err)
+		utils.Errorf("Function Unmarshal Error: %v", err)
 		return "", false
 	}
 
@@ -126,14 +136,33 @@ func buildModelConfig(config TrainConfig) (string, bool) {
 		trainModelCofig["sample_prompts"] = t.GetTagName()
 	}
 
-	newData, err := json.MarshalIndent(trainModelCofig, "", "  ")
-	if err != nil {
-		utils.Error(err)
-		return "", false
+	switch config.GetTrainType() {
+	case TrainSpeedFast:
+		trainModelCofig["train_batch_size"] = 4
+		trainModelCofig["gradient_accumulation_steps"] = 1
+		trainModelCofig["network_alpha"] = 16
+		trainModelCofig["network_dim"] = 32
+	case TrainSpeedSlow:
+		trainModelCofig["train_batch_size"] = 1
+		trainModelCofig["gradient_accumulation_steps"] = 6
+		trainModelCofig["network_alpha"] = 32
+		trainModelCofig["network_dim"] = 64
+	case TrainQualityHigh:
+		trainModelCofig["train_batch_size"] = 4
+		trainModelCofig["gradient_accumulation_steps"] = 2
+		trainModelCofig["network_alpha"] = 32
+		trainModelCofig["network_dim"] = 64
+	case TrainQualityLow:
+		trainModelCofig["train_batch_size"] = 1
+		trainModelCofig["gradient_accumulation_steps"] = 1
+		trainModelCofig["network_alpha"] = 4
+		trainModelCofig["network_dim"] = 8
+	default:
 	}
 
-	if err := os.MkdirAll(config.GetInputDir(), os.ModePerm); err != nil {
-		utils.Errorf("Function os.MkdirAll error: %v", err)
+	newData, err := json.MarshalIndent(trainModelCofig, "", "  ")
+	if err != nil {
+		utils.Errorf("Function MarshalIndent error: %v", err)
 		return "", false
 	}
 
@@ -151,6 +180,6 @@ func buildModelConfig(config TrainConfig) (string, bool) {
 		return "", false
 	}
 
-	utils.Infof("Save new model config: %s\n%s", savePath, string(newData))
+	utils.Infof("Save new model config: %s", savePath)
 	return savePath, true
 }

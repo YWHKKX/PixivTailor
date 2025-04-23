@@ -56,7 +56,7 @@ func formatBytes(b int64) string {
 }
 
 // https://i.pximg.net/img-master/img/{time}/{illustID}_p{index}_master1200.jpg
-func Download(id, target string, index int, config CrawlerConfig) bool {
+func Download(id, target string, index int, config *CrawlerConfig) bool {
 	req := makeRequest(target, config.GetCookie(), config.GetAgent(), config.GetAccept())
 
 	proxyURL, _ := url.Parse("http://127.0.0.1:7890")

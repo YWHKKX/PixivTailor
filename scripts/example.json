@@ -55,7 +55,7 @@
   "full_bf16": false,
   "full_fp16": false,
   "gpu_ids": "",
-  "gradient_accumulation_steps": 4,
+  "gradient_accumulation_steps": 2,
   "gradient_checkpointing": true,
   "guidance_scale": 3.5,
   "highvram": false,
@@ -123,8 +123,8 @@
   "multi_gpu": false,
   "multires_noise_discount": 0.3,
   "multires_noise_iterations": 0,
-  "network_alpha": 8,
-  "network_dim": 32,
+  "network_alpha": 32,
+  "network_dim": 64,
   "network_dropout": 0.05,
   "network_weights": "",
   "noise_offset": 0.1,
@@ -225,5 +225,8 @@
   "wandb_run_name": "",
   "weighted_captions": false,
   "weighting_scheme": "logit_normal",
-  "xformers": "xformers"
+  "xformers": "xformers",
+  "mask_loss_for_background": true,
+  "focus_crop_ratio": 0.8,
+  "background_suppress_strength": 0.3
 }
