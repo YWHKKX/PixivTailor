@@ -82,7 +82,7 @@ func GetImageUrl(id string, config *CrawlerConfig) []string {
 		return []string{}
 	}
 	if res.StatusCode != http.StatusOK {
-		utils.Errorf("Request StatusCode: %d", res.StatusCode)
+		utils.Errorf("Response StatusCode: %d", res.StatusCode)
 		return []string{}
 	}
 	defer res.Body.Close()
@@ -124,8 +124,8 @@ func GetMangaTag(input string, config *CrawlerConfig, isDebug bool) (ret []*Mang
 	}
 
 	for index, d := range resp.Body.IllustManga.Data {
-		if !config.CheckLimit(index) {
-			utils.Infof("Limit reached: %d", config.GetLimit())
+		if config.CheckLimit(index) {
+			utils.Warnf("Limit reached: %d", config.GetLimit())
 			break
 		}
 
@@ -151,8 +151,8 @@ func GetMangaUser(input string, config *CrawlerConfig, isDebug bool) (ret []*Man
 
 	index := 0
 	for i, d := range resp.Body.Illusts {
-		if !config.CheckLimit(index) {
-			utils.Infof("Limit reached: %d", config.GetLimit())
+		if config.CheckLimit(index) {
+			utils.Warnf("Limit reached: %d", config.GetLimit())
 			break
 		}
 		index++
@@ -193,7 +193,7 @@ func Collector(config *CrawlerConfig) []*Manga {
 			return nil
 		}
 		if res.StatusCode != http.StatusOK {
-			utils.Errorf("Request StatusCode: %d", res.StatusCode)
+			utils.Errorf("Response StatusCode: %d", res.StatusCode)
 			return nil
 		}
 		defer res.Body.Close()

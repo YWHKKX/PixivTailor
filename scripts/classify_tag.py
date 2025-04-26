@@ -6,10 +6,11 @@ from openai import RateLimitError
 import sys, json, os, time
 
 class Tags(BaseModel):
-    character: str = Field(description="Character tags are a classification system used to label the multi-dimensional characteristics of fictional characters, including hair color and type, facial features, and body shape. Please generate character settings or analyze tag relevance based on user-provided tags")
+    character: str = Field(description="Character labeling is a classification system used to label the multidimensional characteristics of a fictional character, including hair color and type, facial features, and body shape but not clothing features. Generate role settings or analyze label affinities based on user-provided labels")
     clothing: str = Field(description="Clothing tags is a classification system used to label the clothing worn by fictional characters, including clothing types such as clothes, pants, skirts, and clothing styles such as Chinese style and Japanese style. Please generate clothing settings or analyze tag relevance based on the tags provided by users")
     background: str = Field(description="Background tags are used to mark the background of fictional characters, including specific scene layout and abstract color style. Please generate background settings or analyze tag relevance based on user-provided tags")
-    pose: str = Field(description="Pose tags are used to mark the actions of virtual characters, including body movements and facial expressions, but not clothing information and character feature information. Sometimes multiple characters may make body movements at the same time. Please generate pose settings or analyze label relevance based on user-provided labels")
+    action: str = Field(description="Action tags are used to mark the virtual character's movements, including body movements, postures, and facial expressions, but do not include any clothing information and character trait information. Generate pose settings based on user-provided labels or analyze label relevance")
+    other: str = Field(description="Other tags are used to store uncategorized labels, and if a label does not belong to any of the above label categories, other labels are placed")
 
 if len(sys.argv) > 2: 
     input_tags = sys.argv[1]

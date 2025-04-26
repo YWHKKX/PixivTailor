@@ -113,7 +113,7 @@ func Download(id, target string, index int, config *CrawlerConfig) bool {
 		return false
 	}
 	if res.StatusCode != http.StatusOK {
-		utils.Errorf("Request StatusCode: %d", res.StatusCode)
+		utils.Errorf("Response StatusCode: %d", res.StatusCode)
 		return false
 	}
 	defer res.Body.Close()

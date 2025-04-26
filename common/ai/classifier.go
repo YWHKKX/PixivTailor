@@ -21,7 +21,7 @@ const (
 	CategoryType_Clothing   CategoryType = "clothing"
 	CategoryType_Background CategoryType = "background"
 	CategoryType_Character  CategoryType = "character"
-	CategoryType_Pose       CategoryType = "pose"
+	CategoryType_Action     CategoryType = "action"
 )
 
 type Category struct {
@@ -44,7 +44,7 @@ func InitCategories() []*Category {
 		},
 		{
 			Name:     "动作特征",
-			Kind:     CategoryType_Pose,
+			Kind:     CategoryType_Action,
 			Keywords: []string{},
 		},
 		{
@@ -98,10 +98,14 @@ func saveTagsToFile(tagsMap map[string][]string, outputPath string) {
 		if tags, ok := tagsMap[string(category.Kind)]; ok {
 			var ret []string
 			for _, k := range category.Keywords {
-				partMap[strings.TrimSpace(k)] = true
+				if strings.TrimSpace(strings.TrimSpace(k)) != "" {
+					partMap[strings.TrimSpace(k)] = true
+				}
 			}
 			for _, t := range tags {
-				partMap[strings.TrimSpace(t)] = true
+				if strings.TrimSpace(strings.TrimSpace(t)) != "" {
+					partMap[strings.TrimSpace(t)] = true
+				}
 			}
 			for p, _ := range partMap {
 				ret = append(ret, p)
@@ -133,28 +137,61 @@ func saveTagsToFile(tagsMap map[string][]string, outputPath string) {
 func GetCategory(config *CategoryConfig) {
 	basePath := config.GetBasePath()
 
+	index := 0
+	tmpName := ""
+	show := true
 	inputPath := filepath.Join(basePath, "Images")
 	outputPath := config.GetOutputPath()
 
-	files, _ := filepath.Glob(filepath.Join(inputPath, "*", "*.txt"))
-	for _, file := range files {
-		if !config.CheckPathFilter(file) {
-			continue
-		}
-		utils.Infof("Start read tags: %s", file)
-		fileData, err := os.ReadFile(file)
-		if err != nil {
-			utils.Errorf("Read File Error: %v", err)
-			continue
-		}
-
-		result := classifyTags(config.GetKeyString(), string(fileData), basePath)
-		if config.GetShowTags() {
-			for k, v := range result {
-				utils.Infof("%s: %s", k, strings.Join(v, ","))
+	if len(config.GetDirectInput()) > 0 {
+		for _, t := range config.GetDirectInput() {
+			utils.Infof("Direct input: %s", t)
+			result := classifyTags(config.GetKeyString(), t, basePath)
+			if config.GetShowTags() {
+				for k, v := range result {
+					utils.Infof("%s: %s", k, strings.Join(v, ","))
+				}
 			}
-		}
 
-		saveTagsToFile(result, outputPath)
+			saveTagsToFile(result, outputPath)
+		}
+	} else {
+		files, _ := filepath.Glob(filepath.Join(inputPath, "*", "*.txt"))
+		for _, file := range files {
+			index++
+			tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
+			if tagName != tmpName {
+				index = 0
+				tmpName = tagName
+				show = true
+			}
+
+			if !config.CheckPathFilter(file) {
+				continue
+			}
+			if config.CheckLimit(index) {
+				if show {
+					utils.Warnf("Limit reached: %d", index)
+				}
+				show = false
+				continue
+			}
+
+			utils.Infof("Start read tags: %s", file)
+			fileData, err := os.ReadFile(file)
+			if err != nil {
+				utils.Errorf("Read File Error: %v", err)
+				continue
+			}
+
+			result := classifyTags(config.GetKeyString(), string(fileData), basePath)
+			if config.GetShowTags() {
+				for k, v := range result {
+					utils.Infof("%s: %s", k, strings.Join(v, ","))
+				}
+			}
+
+			saveTagsToFile(result, outputPath)
+		}
 	}
 }

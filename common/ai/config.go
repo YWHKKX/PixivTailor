@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,25 +16,10 @@ type poseConfig struct {
 	GroupNum, MemberNum int
 }
 
-type SDRequest struct {
-	mainModleName             string
-	batch_size, n_iter        int
-	fixpose, fixhand, fixface bool
-	posePaths                 map[string]*poseConfig
-	alwaysonScripts           map[string]interface{}
-}
-
-type SDDownload struct {
-	savePathName string
-	basePath     string
-	inputPath    string
-	outputPath   string
-	forEach      bool
-	saveType     SaveType
-	tagConfigs   map[string]tagConfig
-	loraModles   map[string]float64
-	loraTags     map[string][]string
-	extendTags   map[string][]string
+type andLoraConfig struct {
+	targetPath string
+	weight     float64
+	extendTags []string
 }
 
 type AnalyzeType int
@@ -43,12 +29,42 @@ const (
 	Analyze_Webuiwd14tagger
 )
 
+type TagOrder string
+
+const (
+	TagOrder_Character TagOrder = "training character"
+	TagOrder_Action    TagOrder = "training action"
+)
+
 type SaveType string
 
 const (
 	Save_Txt  SaveType = "txt"
 	Save_Json SaveType = "json"
 )
+
+type SDRequest struct {
+	mainModleName             string
+	batch_size, n_iter        int
+	fixpose, fixhand, fixface bool
+	manualSetup               bool
+	posePaths                 map[string]*poseConfig
+	alwaysonScripts           map[string]interface{}
+}
+
+type SDDownload struct {
+	savePathName   string
+	basePath       string
+	inputPath      string
+	outputPath     string
+	forEach        bool
+	saveType       SaveType
+	tagConfigs     map[string]tagConfig
+	loraModles     map[string]float64
+	loraTags       map[string][]string
+	extendTags     map[string][]string
+	andLoraConfigs map[string]andLoraConfig
+}
 
 type ImageConfig struct {
 	sdRequestConfig  SDRequest
@@ -59,6 +75,7 @@ type ImageConfig struct {
 	ignorePathName   []string
 	skipTags         []string
 	analyzeType      AnalyzeType
+	tagOrder         TagOrder
 }
 
 // stable-diffusion-webui: https://github.com/AUTOMATIC1111/stable-diffusion-webui
@@ -91,8 +108,8 @@ func InitImageConfig(mainModle string, basePaths ...string) *ImageConfig {
 			if category.Kind == CategoryType_Background {
 				GlobalTag_Background = append(GlobalTag_Background, category.Keywords...)
 			}
-			if category.Kind == CategoryType_Pose {
-				GlobalTag_Pose = append(GlobalTag_Pose, category.Keywords...)
+			if category.Kind == CategoryType_Action {
+				GlobalTag_Action = append(GlobalTag_Action, category.Keywords...)
 			}
 		}
 	}
@@ -111,20 +128,22 @@ func InitImageConfig(mainModle string, basePaths ...string) *ImageConfig {
 			posePaths:       make(map[string]*poseConfig),
 		},
 		sdDownloadConfig: SDDownload{
-			basePath:     basePath,
-			inputPath:    inputPath,
-			outputPath:   outputPath,
-			savePathName: "NewImage",
-			forEach:      false,
-			saveType:     Save_Json,
-			tagConfigs:   make(map[string]tagConfig),
-			loraModles:   make(map[string]float64),
-			loraTags:     make(map[string][]string),
-			extendTags:   make(map[string][]string),
+			basePath:       basePath,
+			inputPath:      inputPath,
+			outputPath:     outputPath,
+			savePathName:   "NewImage",
+			forEach:        false,
+			saveType:       Save_Json,
+			tagConfigs:     make(map[string]tagConfig),
+			andLoraConfigs: make(map[string]andLoraConfig),
+			loraModles:     make(map[string]float64),
+			loraTags:       make(map[string][]string),
+			extendTags:     make(map[string][]string),
 		},
 		showTags:    false,
 		deleteTags:  false,
 		analyzeType: Analyze_Deepdanbooru,
+		tagOrder:    TagOrder_Character,
 		skipTags:    []string{},
 	}
 }
@@ -142,6 +161,7 @@ func (c *ImageConfig) AddLoraModel(n string, f float64, tags []string) {
 	c.sdDownloadConfig.loraTags[n] = tags
 }
 
+// Using extend lora tags for each lora model
 func (c *ImageConfig) GetLoraTags(name string) []string {
 	return c.sdDownloadConfig.loraTags[name]
 }
@@ -154,6 +174,7 @@ func (c *ImageConfig) AddExtendTags(extendTags []string, names ...string) {
 	c.sdDownloadConfig.extendTags[name] = extendTags
 }
 
+// Using extend general tags for each directory
 func (c *ImageConfig) GetExtendTags(names ...string) []string {
 	name := ""
 	if len(names) > 0 {
@@ -264,8 +285,8 @@ func (c *ImageConfig) GetFixpose() bool {
 }
 
 func (c *ImageConfig) SetFixpose(fixpose bool) {
-	if c.GetFixface() || c.GetFixhand() {
-		utils.Warnf("FixFace or FixHand has already been set, it is not recommended to set Fixpose")
+	if (c.GetFixface() || c.GetFixhand()) && fixpose {
+		utils.Warn("FixFace or FixHand has already been set, it is not recommended to set Fixpose")
 	}
 
 	c.sdRequestConfig.fixpose = fixpose
@@ -294,6 +315,14 @@ func (c *ImageConfig) GetAnalyzeType() AnalyzeType {
 
 func (c *ImageConfig) SetAnalyzeType(analyzeType AnalyzeType) {
 	c.analyzeType = analyzeType
+}
+
+func (c *ImageConfig) GetTagOrder() TagOrder {
+	return c.tagOrder
+}
+
+func (c *ImageConfig) SetTagOrder(tagOrder TagOrder) {
+	c.tagOrder = tagOrder
 }
 
 func (c *ImageConfig) GetSaveType() SaveType {
@@ -326,6 +355,37 @@ func (c *ImageConfig) AddTagConfig(tagName, tagPath string) {
 		tagSrcPath: tagPath,
 		times:      0,
 	}
+}
+
+func (c *ImageConfig) GetAndLoraConfigs() map[string]andLoraConfig {
+	return c.sdDownloadConfig.andLoraConfigs
+}
+
+func (c *ImageConfig) GetAndLoraString(n string) (string, bool) {
+	if lore, ok := c.sdDownloadConfig.andLoraConfigs[n]; ok {
+		path := filepath.Join(c.sdDownloadConfig.inputPath, c.containPathName[0], lore.targetPath)
+		fileData, _ := os.ReadFile(path)
+		return fmt.Sprintf("\nAND<lora:%s:%f>%s,%s", n, lore.weight, strings.Join(lore.extendTags, ","), string(fileData)), true
+	}
+	return "", false
+}
+
+func (c *ImageConfig) AddAndLoraConfig(loraName string, weight float64, targetPath string, extendTagsp ...[]string) {
+	c.sdRequestConfig.manualSetup = true
+
+	extendTags := []string{}
+	if len(extendTagsp) > 0 {
+		extendTags = extendTagsp[0]
+	}
+	c.sdDownloadConfig.andLoraConfigs[loraName] = andLoraConfig{
+		targetPath: targetPath,
+		extendTags: extendTags,
+		weight:     weight,
+	}
+}
+
+func (c *ImageConfig) IsManualSetup() bool {
+	return c.sdRequestConfig.manualSetup
 }
 
 func (c *ImageConfig) AddContainPathName(path string) {
@@ -380,14 +440,21 @@ func (c *ImageConfig) CheckSkipTags(input string) bool {
 	return matched
 }
 
-type TrainType int
+type TrainSpeed int
 
 const (
-	TrainSpeedAuto   TrainType = iota
-	TrainSpeedSlow             // 100 images ≈ 7h
-	TrainSpeedFast             // 100 images ≈ 3h
-	TrainQualityLow            // 100 images ≈ 1h
-	TrainQualityHigh           // 100 images ≈ 8h
+	TrainSpeedAuto TrainSpeed = iota
+	TrainSpeedSlow            // 100 images ≈ 7h
+	TrainSpeedMid             // 100 images ≈ 5h
+	TrainSpeedFast            // 100 images ≈ 3h
+)
+
+type TrainQuality int
+
+const (
+	TrainQualityHigh TrainQuality = iota
+	TrainQualityMed
+	TrainQualityLow
 )
 
 type modelConfig struct {
@@ -396,20 +463,24 @@ type modelConfig struct {
 	inputDir       string // train_data_dir
 	outputDir      string // output_dir
 	logDir         string // logging_dir
+	epoch          int    // epoch
+	prompts        string // sample_prompts
 }
 
 type tagConfig struct {
 	tagName, tagSrcPath string
 	times               int
+	trainTagNum         int
 }
 
 type TrainConfig struct {
 	basePath      string
 	limit         int
 	modelConfig   modelConfig
-	trainType     TrainType
-	trainImageNum int
-	tagConfigs    map[string]tagConfig
+	trainSpeed    TrainSpeed
+	trainQuality  TrainQuality
+	trainTotalNum int
+	tagConfigs    map[string]*tagConfig
 }
 
 // kohya-ss: https://github.com/kohya-ss
@@ -439,12 +510,15 @@ func NewTrainConfig(modelName, pretrainedPath, inputDir string, basePaths ...str
 			inputDir:       filepath.Join(inputDir),
 			outputDir:      outputDir,
 			logDir:         logDir,
+			epoch:          10,
+			prompts:        "",
 		},
-		tagConfigs:    make(map[string]tagConfig),
+		tagConfigs:    make(map[string]*tagConfig),
 		limit:         0,
 		basePath:      basePath,
-		trainType:     TrainSpeedAuto,
-		trainImageNum: 0,
+		trainSpeed:    TrainSpeedAuto,
+		trainQuality:  TrainQualityLow,
+		trainTotalNum: 0,
 	}
 }
 
@@ -476,19 +550,28 @@ func (c *TrainConfig) SetBasePath(basePath string) {
 	c.basePath = basePath
 }
 
-func (c *TrainConfig) GetTagConfigs() map[string]tagConfig {
+func (c *TrainConfig) GetTagConfigs() map[string]*tagConfig {
 	return c.tagConfigs
 }
 
-func (c *TrainConfig) SetTagConfigs(tagConfigs map[string]tagConfig) {
-	c.tagConfigs = tagConfigs
+func (c *TrainConfig) AddTagConfig(tagName, tagPath string, times int) {
+	c.tagConfigs[tagName] = &tagConfig{
+		tagName:     tagName,
+		tagSrcPath:  tagPath,
+		times:       times,
+		trainTagNum: 0,
+	}
 }
 
-func (c *TrainConfig) AddTagConfig(tagName, tagPath string, times int) {
-	c.tagConfigs[tagName] = tagConfig{
-		tagName:    tagName,
-		tagSrcPath: tagPath,
-		times:      times,
+func (c *TrainConfig) SetTrainTagNum(tagName string, num int) {
+	if tag, ok := c.tagConfigs[tagName]; ok {
+		totalStep := num * len(c.tagConfigs) * tag.times * c.modelConfig.epoch / 4
+		if totalStep > 5000 {
+			utils.Warnf("Estimated total number of steps is %d, need to reduce repeat", totalStep)
+		} else if totalStep < 2000 {
+			utils.Warnf("Estimated total number of steps is %d, need to increase repeat", totalStep)
+		}
+		tag.trainTagNum = num
 	}
 }
 
@@ -502,14 +585,14 @@ func (c *TrainConfig) SetLimit(limit int) {
 
 func (c *TrainConfig) CheckLimit(index int) bool {
 	if index >= c.GetLimit() && c.GetLimit() != 0 {
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
-func (t *TrainConfig) GetTrainType() TrainType {
-	if t.trainType == TrainSpeedAuto {
-		if t.trainImageNum < 100 {
+func (t *TrainConfig) GetTrainSpeed() TrainSpeed {
+	if t.trainSpeed == TrainSpeedAuto {
+		if t.trainTotalNum < 100 {
 			utils.Info("The training set is less than 100 images, use the TrainSpeedFast mode")
 			return TrainSpeedFast
 		} else {
@@ -517,15 +600,50 @@ func (t *TrainConfig) GetTrainType() TrainType {
 			return TrainSpeedSlow
 		}
 	}
-	return t.trainType
+	return t.trainSpeed
 }
 
-func (t *TrainConfig) SetTrainType(trainType TrainType) {
-	t.trainType = trainType
+func (t *TrainConfig) SetTrainSpeed(trainType TrainSpeed) {
+	t.trainSpeed = trainType
 }
 
-func (t *TrainConfig) UpTrainImageNum(num int) {
-	t.trainImageNum += num
+func (t *TrainConfig) GetTrainQuality() TrainQuality {
+	return t.trainQuality
+}
+
+func (t *TrainConfig) SetTrainQuality(trainQuality TrainQuality) {
+	t.trainQuality = trainQuality
+}
+
+func (t *TrainConfig) UpTrainTotalNum(num int) {
+	t.trainTotalNum += num
+}
+
+func (t *TrainConfig) GetPrompts() string {
+	return t.modelConfig.prompts
+}
+
+func (t *TrainConfig) SetPrompts(prompts string) {
+	t.modelConfig.prompts = prompts
+}
+
+func (t *TrainConfig) GetEpoch() int {
+	totalStep := 0
+	for _, tc := range t.tagConfigs {
+		totalStep += tc.times * tc.trainTagNum * t.modelConfig.epoch
+	}
+	totalStep = totalStep / 4
+	utils.Infof("Total step: %d", totalStep)
+	if totalStep < 2000 {
+		utils.Warn("The training set is less than 2000 steps, it is recommended to increase epoch or repeat")
+	} else if totalStep > 5000 {
+		utils.Warn("The training set is more than 5000 steps, it is recommended to reduce epoch or repeat")
+	}
+	return t.modelConfig.epoch
+}
+
+func (t *TrainConfig) SetEpoch(epoch int) {
+	t.modelConfig.epoch = epoch
 }
 
 func (t *tagConfig) GetTagName() string {
@@ -543,10 +661,12 @@ func (t *tagConfig) GetTimes() int {
 type CategoryConfig struct {
 	keyString                       []string
 	keyIndex                        int
+	limit                           int
 	basePath                        string
 	outputPath                      string
 	containPathName, ignorePathName []string
 	showTags                        bool
+	directInput                     []string
 }
 
 // openai: https://platform.openai.com/settings/organization/api-keys
@@ -558,11 +678,13 @@ func NewCategoryConfig(keyString []string, outputPath string, basePaths ...strin
 		basePath = basePaths[0]
 	}
 	return &CategoryConfig{
-		keyString:  keyString,
-		keyIndex:   0,
-		basePath:   basePath,
-		outputPath: filepath.Join(basePath, outputPath),
-		showTags:   false,
+		keyString:   keyString,
+		keyIndex:    0,
+		limit:       0,
+		basePath:    basePath,
+		outputPath:  filepath.Join(basePath, outputPath),
+		showTags:    false,
+		directInput: []string{},
 	}
 }
 
@@ -618,4 +740,27 @@ func (c *CategoryConfig) SetShowTags(showTags bool) {
 
 func (c *CategoryConfig) GetShowTags() bool {
 	return c.showTags
+}
+
+func (c *CategoryConfig) SetDirectInput(directInput []string) {
+	c.directInput = directInput
+}
+
+func (c *CategoryConfig) GetDirectInput() []string {
+	return c.directInput
+}
+
+func (c *CategoryConfig) GetLimit() int {
+	return c.limit
+}
+
+func (c *CategoryConfig) SetLimit(limit int) {
+	c.limit = limit
+}
+
+func (c *CategoryConfig) CheckLimit(index int) bool {
+	if index >= c.GetLimit() && c.GetLimit() != 0 {
+		return true
+	}
+	return false
 }

@@ -185,9 +185,9 @@ func (c *CrawlerConfig) SetLimit(limit int) {
 
 func (c *CrawlerConfig) CheckLimit(index int) bool {
 	if index >= c.GetLimit() && c.GetLimit() != 0 {
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
 func (c *CrawlerConfig) GetDelay() time.Duration {

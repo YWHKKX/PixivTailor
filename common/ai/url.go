@@ -62,8 +62,11 @@ func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Respons
 	for l, f := range config.GetLoraModel() {
 		loraString += fmt.Sprintf("<lora:%s:%f>%s,", l, f, strings.Join(config.GetLoraTags(l), ","))
 	}
-	for _, e := range config.GetExtendTags(tagName) {
-		extendTags += e + ","
+
+	if tagName != "" {
+		for _, e := range config.GetExtendTags(tagName) {
+			extendTags += e + ","
+		}
 	}
 	for _, e := range config.GetExtendTags("") {
 		extendTags += e + ","
@@ -71,6 +74,8 @@ func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Respons
 
 	args_ADetailer := []map[string]interface{}{}
 	args_ControlNet := []map[string]interface{}{}
+	args_ComposableLora := []map[string]interface{}{}
+	args_LatentCouplet := []map[string]interface{}{}
 
 	if config.GetFixface() {
 		args_ADetailer = append(args_ADetailer, map[string]interface{}{
@@ -105,6 +110,18 @@ func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Respons
 				"guidance_end":   1.0,
 				"pixel_perfect":  true,
 			},
+		})
+	}
+	if config.IsManualSetup() {
+		args_LatentCouplet = append(args_LatentCouplet, map[string]interface{}{
+			"enabled":     true,
+			"divisions":   "1:1,1:2,1:2",
+			"positions":   "0:0,0:0,0:1",
+			"weights":     "0.2,0.8,0.8",
+			"end_at_step": 32,
+		})
+		args_ComposableLora = append(args_ComposableLora, map[string]interface{}{
+			"enabled": true,
 		})
 	}
 
@@ -162,7 +179,7 @@ func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Respons
 		if _, err := os.Stat(poseFile); err == nil {
 			utils.Infof("PosePath file: %s to configuration", poseFile)
 
-			for index := 1; index < memberNum/2; index++ {
+			for index := 1; index < memberNum+1; index++ {
 				poseFile = filepath.Join(poseDir, fmt.Sprintf("%s_%d.png", poseKey, index))
 				imageData, err := ioutil.ReadFile(poseFile)
 				if err != nil {
@@ -176,7 +193,7 @@ func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Respons
 			utils.Warnf("PosePath file: %s not find, try using random pose", poseFile)
 			utils.Infof("PosePath file: %s to configuration", filepath.Join(poseDir, fmt.Sprintf("%s%d.png", poseKey, randomNum)))
 
-			for index := 1; index < memberNum/2; index++ {
+			for index := 1; index < memberNum+1; index++ {
 				poseFile = filepath.Join(poseDir, fmt.Sprintf("%s%d_%d.png", poseKey, randomNum, index))
 				imageData, err := ioutil.ReadFile(poseFile)
 				if err != nil {
@@ -194,19 +211,29 @@ func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Respons
 			"args": args_ADetailer,
 		})
 	}
-
 	if len(args_ControlNet) > 0 {
 		config.AddAlwaysonScripts("ControlNet", map[string]interface{}{
 			"args": args_ControlNet,
 		})
 	}
+	if len(args_LatentCouplet) > 0 {
+		config.AddAlwaysonScripts("Latent Couple extension", map[string]interface{}{
+			"args": args_LatentCouplet,
+		})
+	}
+	if len(args_ComposableLora) > 0 {
+		config.AddAlwaysonScripts("Composable Lora", map[string]interface{}{
+			"args": args_ComposableLora,
+		})
+	}
 
 	data := map[string]interface{}{
-		"prompt":               loraString + loraString + tagString,
+		"prompt":               extendTags + loraString + tagString,
 		"negative_prompt":      negativeString,
 		"seed":                 -1,
-		"sampler_name":         "DPM++ 2M SDE",
+		"sampler_name":         "DPM++ 2M Karras",
 		"cfg_scale":            7.5,
+		"face_restoration":     "CodeFormer",
 		"width":                512,
 		"height":               512,
 		"batch_size":           config.GetBatchSize(),
@@ -254,7 +281,17 @@ func makeSDRequest(tagName, tagString string, config *ImageConfig) *http.Respons
 		return nil
 	}
 	if res.StatusCode != http.StatusOK {
-		utils.Errorf("Request StatusCode: %d", res.StatusCode)
+		utils.Errorf("Response StatusCode: %d", res.StatusCode)
+
+		body, _ := ioutil.ReadAll(res.Body)
+		errorMap := make(map[string]interface{})
+		err := json.Unmarshal(body, &errorMap)
+		if err != nil {
+			utils.Errorf("Function Unmarshal Error: %v", err)
+			return nil
+		}
+		utils.Errorf("Response error: %v, %v", errorMap["error"], errorMap["detail"])
+
 		return nil
 	}
 	return res

@@ -31,9 +31,8 @@ func TrainModel(config *TrainConfig) {
 		return
 	}
 
-	cmd := exec.Command("python",
-		filepath.Join(config.GetBasePath(), "scripts", "train_model.py"),
-		filepath.Join(savePath))
+	modelPath := filepath.Join(config.GetBasePath(), "scripts", "train_model.py")
+	cmd := exec.Command("python", modelPath, filepath.Join(savePath))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		utils.Errorf("Python script execution error: %s", err)
@@ -41,6 +40,17 @@ func TrainModel(config *TrainConfig) {
 		return
 	}
 	utils.Infof("Output: %s", string(output))
+
+	utils.KillPortWindows(6006)
+	cmd = exec.Command("tensorboard",
+		fmt.Sprintf("--logdir=%s", filepath.Join(config.GetBasePath(), "logs")))
+
+	err = cmd.Start()
+	if err != nil {
+		utils.Errorf("Tensorboard execution error: %s", err)
+		return
+	}
+	utils.Info("Tensorboard started with: http://127.0.0.1:6006/")
 }
 
 func buildTrainingSet(config *TrainConfig) bool {
@@ -50,7 +60,7 @@ func buildTrainingSet(config *TrainConfig) bool {
 
 		utils.Infof("Start setting the %s training set", c.GetTagName())
 
-		copyFile := func(src, dst string) error {
+		copyImage := func(src, dst string) error {
 			srcFile, err := os.Open(src)
 			if err != nil {
 				return err
@@ -66,6 +76,21 @@ func buildTrainingSet(config *TrainConfig) bool {
 			_, err = io.Copy(dstFile, srcFile)
 			return err
 		}
+		copyTxt := func(src, dst string) error {
+			fileData, err := os.ReadFile(src)
+			if err != nil {
+				return err
+			}
+
+			dstFile, err := os.Create(dst)
+			if err != nil {
+				return err
+			}
+			defer dstFile.Close()
+
+			_, err = dstFile.WriteString(c.GetTagName() + "," + string(fileData))
+			return err
+		}
 
 		index := 0
 		err := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
@@ -73,33 +98,38 @@ func buildTrainingSet(config *TrainConfig) bool {
 				return err
 			}
 			if !info.IsDir() {
-				if !config.CheckLimit(index) {
+				if config.CheckLimit(index) {
 					return nil
 				}
 
 				ext := strings.ToLower(filepath.Ext(path))
+				relPath, _ := filepath.Rel(srcDir, path)
+				destPath := filepath.Join(destDir, relPath)
+				if err := os.MkdirAll(filepath.Dir(destPath), os.ModePerm); err != nil {
+					utils.Errorf("Function os.MkdirAll error: %v", err)
+					return err
+				}
+
 				if ext == ".jpg" {
 					index++
+					if err := copyImage(path, destPath); err != nil {
+						utils.Errorf("Copy file error to: %s", destPath)
+						return err
+					}
+					utils.Infof("Copy file success to: %s", destPath)
 				}
-				if ext == ".jpg" || ext == ".txt" {
-					relPath, _ := filepath.Rel(srcDir, path)
-					destPath := filepath.Join(destDir, relPath)
-
-					if err := os.MkdirAll(filepath.Dir(destPath), os.ModePerm); err != nil {
+				if ext == ".txt" {
+					if err := copyTxt(path, destPath); err != nil {
+						utils.Errorf("Copy file error to: %s", destPath)
 						return err
 					}
-
-					if err := copyFile(path, destPath); err != nil {
-						utils.Errorf("Copy file error from: %s to: %s", path, destPath)
-						return err
-					}
-					utils.Infof("Copy file success from: %s to: %s", path, destPath)
 				}
 			}
 			return nil
 		})
 		utils.Infof("TagName %s, total of %d images were read", c.GetTagName(), index)
-		config.UpTrainImageNum(index)
+		config.UpTrainTotalNum(index)
+		config.SetTrainTagNum(c.GetTagName(), index)
 
 		if err != nil {
 			utils.Errorf("Failed to traverse the folder: %v\n", err)
@@ -132,32 +162,38 @@ func buildModelConfig(config *TrainConfig) (string, bool) {
 	trainModelCofig["train_data_dir"] = config.GetInputDir()
 	trainModelCofig["output_dir"] = config.GetOutputDir()
 	trainModelCofig["logging_dir"] = config.GetLogDir()
-	for _, t := range config.GetTagConfigs() {
-		trainModelCofig["sample_prompts"] = t.GetTagName()
+
+	if prompts := config.GetPrompts(); prompts != "" {
+		trainModelCofig["sample_prompts"] = prompts
+	}
+	if epoch := config.GetEpoch(); epoch > 0 {
+		trainModelCofig["epoch"] = epoch
+		trainModelCofig["max_train_epochs"] = epoch
 	}
 
-	switch config.GetTrainType() {
+	switch config.GetTrainSpeed() {
 	case TrainSpeedFast:
 		trainModelCofig["train_batch_size"] = 4
 		trainModelCofig["gradient_accumulation_steps"] = 1
-		trainModelCofig["network_alpha"] = 16
-		trainModelCofig["network_dim"] = 32
+	case TrainSpeedMid:
+		trainModelCofig["train_batch_size"] = 2
+		trainModelCofig["gradient_accumulation_steps"] = 2
 	case TrainSpeedSlow:
 		trainModelCofig["train_batch_size"] = 1
-		trainModelCofig["gradient_accumulation_steps"] = 6
-		trainModelCofig["network_alpha"] = 32
-		trainModelCofig["network_dim"] = 64
+		trainModelCofig["gradient_accumulation_steps"] = 4
+	default:
+	}
+
+	switch config.GetTrainQuality() {
 	case TrainQualityHigh:
-		trainModelCofig["train_batch_size"] = 4
-		trainModelCofig["gradient_accumulation_steps"] = 2
+		trainModelCofig["network_alpha"] = 64
+		trainModelCofig["network_dim"] = 128
+	case TrainQualityMed:
 		trainModelCofig["network_alpha"] = 32
 		trainModelCofig["network_dim"] = 64
 	case TrainQualityLow:
-		trainModelCofig["train_batch_size"] = 1
-		trainModelCofig["gradient_accumulation_steps"] = 1
-		trainModelCofig["network_alpha"] = 4
-		trainModelCofig["network_dim"] = 8
-	default:
+		trainModelCofig["network_alpha"] = 16
+		trainModelCofig["network_dim"] = 32
 	}
 
 	newData, err := json.MarshalIndent(trainModelCofig, "", "  ")

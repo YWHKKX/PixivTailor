@@ -20,8 +20,6 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 	inputPath := config.GetInputPath()
 	outputPath := config.GetOutputPath()
 
-	files, _ := filepath.Glob(filepath.Join(inputPath, "*", "*."+string(config.GetSaveType())))
-
 	DownloadImage := func(path string, index int, content []byte) bool {
 		savePath := fmt.Sprintf("%s_%d.jpg", path, index)
 		if _, err := os.Stat(savePath); err == nil {
@@ -53,86 +51,152 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 		return true
 	}
 
+	var responses DeepDanbooruResponses
+	var SDResponse SDResponse
+
 	index := 0
 	tmpTag := ""
-	for _, file := range files {
-		if !config.CheckPathFilter(file) {
-			continue
+	if config.IsManualSetup() {
+		loras := []string{}
+		for lora, _ := range config.GetAndLoraConfigs() {
+			loras = append(loras, lora)
 		}
 
-		var responses DeepDanbooruResponses
-		var SDResponse SDResponse
+		for i := 0; i < len(loras); i++ {
+			for j := 0; j < len(loras); j++ {
+				if i == j {
+					continue
+				}
 
-		utils.Infof("Start read tags: %s", file)
-		fileData, err := os.ReadFile(file)
-		if err != nil {
-			utils.Errorf("Read File Error: %v", err)
-			continue
-		}
+				utils.Infof("Try to request first image for %s", loras[i])
+				utils.Infof("Try to request second image for %s", loras[j])
 
-		tagString := ""
-		tagNum := 0
-		switch config.GetSaveType() {
-		case Save_Json:
-			if err := json.Unmarshal(fileData, &responses); err != nil {
-				utils.Errorf("Function Unmarshal Error: %v", err)
-				break
+				loraString1, _ := config.GetAndLoraString(loras[i])
+				loraString2, _ := config.GetAndLoraString(loras[j])
+
+				res := makeSDRequest("", loraString1+loraString2, config)
+				if res == nil {
+					return
+				}
+				defer res.Body.Close()
+
+				body, _ := ioutil.ReadAll(res.Body)
+				err := json.Unmarshal(body, &SDResponse)
+				if err != nil {
+					utils.Errorf("Function Unmarshal Error: %v", err)
+					return
+				}
+
+				tagName := filepath.Base(filepath.Base(config.sdDownloadConfig.inputPath))
+				if tagName != tmpTag {
+					index = 0
+					tmpTag = tagName
+				}
+				saveDir := filepath.Join(outputPath, config.GetSavePathName())
+				saveFile := filepath.Join(saveDir, tagName)
+				if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
+					utils.Errorf("Function os.MkdirAll error: %v", err)
+					return
+				}
+
+				ignoreNum := 0
+				for _, poseConfig := range config.GetPoseConfigs() {
+					ignoreNum += poseConfig.MemberNum
+				}
+				utils.Infof("The number of bone diagrams: %d", ignoreNum)
+
+				for i, image := range SDResponse.Images {
+					if i >= len(SDResponse.Images)-ignoreNum {
+						utils.Info("Skip the bone diagram")
+						continue
+					}
+					retry := true
+					for retry {
+						utils.Infof("Try to download new image: %s", fmt.Sprintf("%s_%d.jpg", tagName, index))
+						retry = !DownloadImage(saveFile, index, image)
+						index++
+					}
+				}
 			}
-			tagString = responses.TagString
-			tagNum = responses.TagNum
-		case Save_Txt:
-			tagString = string(fileData)
-			tagNum = strings.Count(string(fileData), ",")
 		}
 
-		if tagString == "" || tagNum == 0 {
-			continue
-		}
-
-		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
-		if tagName != tmpTag {
-			index = 0
-			tmpTag = tagName
-		}
-		saveDir := filepath.Join(outputPath, config.GetSavePathName())
-		saveFile := filepath.Join(saveDir, tagName)
-		if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
-			utils.Errorf("Function os.MkdirAll error: %v", err)
-			return
-		}
-
-		utils.Infof("Try to request image for: %s,\tlen(tags) = %d", tagName, tagNum)
-		res := makeSDRequest(tagName, tagString, config)
-		if res == nil {
-			return
-		}
-		defer res.Body.Close()
-
-		body, _ := ioutil.ReadAll(res.Body)
-		err = json.Unmarshal(body, &SDResponse)
-		if err != nil {
-			utils.Errorf("Function Unmarshal Error: %v", err)
-			return
-		}
-
-		ignoreNum := 0
-		for _, poseConfig := range config.GetPoseConfigs() {
-			ignoreNum += poseConfig.MemberNum/2 - 1
-		}
-		utils.Infof("The number of bone diagrams: %d", ignoreNum)
-
-		for i, image := range SDResponse.Images {
-			if i >= len(SDResponse.Images)-ignoreNum {
-				utils.Info("Skip the bone diagram")
+	} else {
+		files, _ := filepath.Glob(filepath.Join(inputPath, "*", "*."+string(config.GetSaveType())))
+		for _, file := range files {
+			if !config.CheckPathFilter(file) {
 				continue
 			}
-			retry := true
-			for retry {
-				utils.Infof("Try to download new image: %s", fmt.Sprintf("%s_%d.jpg", tagName, index))
-				retry = !DownloadImage(saveFile, index, image)
-				index++
+
+			utils.Infof("Start read tags: %s", file)
+			fileData, err := os.ReadFile(file)
+			if err != nil {
+				utils.Errorf("Read File Error: %v", err)
+				continue
+			}
+
+			tagString := ""
+			tagNum := 0
+			switch config.GetSaveType() {
+			case Save_Json:
+				if err := json.Unmarshal(fileData, &responses); err != nil {
+					utils.Errorf("Function Unmarshal Error: %v", err)
+					break
+				}
+				tagString = responses.TagString
+				tagNum = responses.TagNum
+			case Save_Txt:
+				tagString = string(fileData)
+				tagNum = strings.Count(string(fileData), ",")
+			}
+
+			if tagString == "" || tagNum == 0 {
+				continue
+			}
+
+			tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
+			if tagName != tmpTag {
+				index = 0
+				tmpTag = tagName
+			}
+			saveDir := filepath.Join(outputPath, config.GetSavePathName())
+			saveFile := filepath.Join(saveDir, tagName)
+			if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
+				utils.Errorf("Function os.MkdirAll error: %v", err)
+				return
+			}
+
+			utils.Infof("Try to request image for %s\tlen(tags) = %d", filepath.Base(file), tagNum)
+			res := makeSDRequest(tagName, tagString, config)
+			if res == nil {
+				return
+			}
+			defer res.Body.Close()
+
+			body, _ := ioutil.ReadAll(res.Body)
+			err = json.Unmarshal(body, &SDResponse)
+			if err != nil {
+				utils.Errorf("Function Unmarshal Error: %v", err)
+				return
+			}
+
+			ignoreNum := 0
+			for _, poseConfig := range config.GetPoseConfigs() {
+				ignoreNum += poseConfig.MemberNum
+			}
+			utils.Infof("The number of bone diagrams: %d", ignoreNum)
+
+			for i, image := range SDResponse.Images {
+				if i >= len(SDResponse.Images)-ignoreNum {
+					utils.Info("Skip the bone diagram")
+					continue
+				}
+				retry := true
+				for retry {
+					utils.Infof("Try to download new image: %s", fmt.Sprintf("%s_%d.jpg", tagName, index))
+					retry = !DownloadImage(saveFile, index, image)
+					index++
+				}
 			}
 		}
 	}
-
 }
