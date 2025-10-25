@@ -1,0 +1,5 @@
+{
+    "http.proxy": "http://127.0.0.1:7890",  // HTTP 代理地址
+    "https.proxy": "http://127.0.0.1:7890", // HTTPS 代理地址
+    "http.proxyStrictSSL": false            // 关闭 SSL 严格验证（可选）
+}

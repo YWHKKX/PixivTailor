@@ -22,6 +22,14 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 
 	DownloadImage := func(path string, index int, content []byte) bool {
 		savePath := fmt.Sprintf("%s_%d.jpg", path, index)
+		if seed := config.GetSeed(); seed != -1 {
+			newPath := filepath.Join(filepath.Dir(savePath), fmt.Sprintf("%d", seed))
+			if err := os.MkdirAll(newPath, os.ModePerm); err != nil {
+				utils.Errorf("Function os.MkdirAll error: %v", err)
+				panic(err)
+			}
+			savePath = filepath.Join(newPath, filepath.Base(savePath))
+		}
 		if _, err := os.Stat(savePath); err == nil {
 			utils.Warnf("File already exists: %s", savePath)
 			return false
@@ -67,14 +75,10 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 				if i == j {
 					continue
 				}
-
 				utils.Infof("Try to request first image for %s", loras[i])
 				utils.Infof("Try to request second image for %s", loras[j])
 
-				loraString1, _ := config.GetAndLoraString(loras[i])
-				loraString2, _ := config.GetAndLoraString(loras[j])
-
-				res := makeSDRequest("", loraString1+loraString2, config)
+				res := makeSDRequest("", "", config, loras[i], loras[j])
 				if res == nil {
 					return
 				}
@@ -87,11 +91,9 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 					return
 				}
 
-				tagName := filepath.Base(filepath.Base(config.sdDownloadConfig.inputPath))
-				if tagName != tmpTag {
-					index = 0
-					tmpTag = tagName
-				}
+				target1 := strings.TrimRight(strings.Split(loras[i], "_")[1], "0123456789")
+				target2 := strings.TrimRight(strings.Split(loras[j], "_")[1], "0123456789")
+				tagName := fmt.Sprintf("%s x %s", target1, target2)
 				saveDir := filepath.Join(outputPath, config.GetSavePathName())
 				saveFile := filepath.Join(saveDir, tagName)
 				if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
@@ -99,9 +101,10 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 					return
 				}
 
-				ignoreNum := 0
-				for _, poseConfig := range config.GetPoseConfigs() {
-					ignoreNum += poseConfig.MemberNum
+				index = 0
+				ignoreNum := 2
+				if config.GetUseHigh() {
+					ignoreNum = 1
 				}
 				utils.Infof("The number of bone diagrams: %d", ignoreNum)
 
@@ -119,7 +122,6 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 				}
 			}
 		}
-
 	} else {
 		files, _ := filepath.Glob(filepath.Join(inputPath, "*", "*."+string(config.GetSaveType())))
 		for _, file := range files {
@@ -179,10 +181,7 @@ func CreateImage_TXT2IMG(config *ImageConfig) {
 				return
 			}
 
-			ignoreNum := 0
-			for _, poseConfig := range config.GetPoseConfigs() {
-				ignoreNum += poseConfig.MemberNum
-			}
+			ignoreNum := 3
 			utils.Infof("The number of bone diagrams: %d", ignoreNum)
 
 			for i, image := range SDResponse.Images {

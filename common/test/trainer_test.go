@@ -20,25 +20,39 @@ func Test_TrainModel(t *testing.T) {
 	config.SetLimit(60)
 
 	config.AddTagConfig(
-		"rem", filepath.Join(basePath, "images", "Rem"), 10,
+		"rem", filepath.Join(basePath, "images", "Rem"), map[string]int{
+			"rem": 20,
+		},
 	)
 	config.AddTagConfig(
-		"ram", filepath.Join(basePath, "images", "Ram"), 10,
+		"ram", filepath.Join(basePath, "images", "Ram"), map[string]int{
+			"ram": 20,
+		},
 	)
 	config.AddTagConfig(
-		"echidna", filepath.Join(basePath, "images", "Echidna"), 10,
+		"echidna", filepath.Join(basePath, "images", "Echidna"), map[string]int{
+			"echidna": 20,
+		},
 	)
 	config.AddTagConfig(
-		"emilia", filepath.Join(basePath, "images", "Emilia"), 10,
+		"emilia", filepath.Join(basePath, "images", "Emilia"), map[string]int{
+			"emilia": 20,
+		},
 	)
 	config.AddTagConfig(
-		"priscilla", filepath.Join(basePath, "images", "Priscilla"), 10,
+		"priscilla", filepath.Join(basePath, "images", "Priscilla"), map[string]int{
+			"priscilla": 20,
+		},
 	)
 	config.AddTagConfig(
-		"felt", filepath.Join(basePath, "images", "Felt"), 10,
+		"felt", filepath.Join(basePath, "images", "Felt"), map[string]int{
+			"felt": 20,
+		},
 	)
 	config.AddTagConfig(
-		"elsa", filepath.Join(basePath, "images", "Elsa"), 10,
+		"elsa", filepath.Join(basePath, "images", "Elsa"), map[string]int{
+			"rem": 20,
+		},
 	)
 
 	ai.TrainModel(config)

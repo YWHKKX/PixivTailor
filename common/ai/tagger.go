@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -17,23 +18,34 @@ import (
 )
 
 var GlobalTag_Negative []string = []string{
-	"EasyNegative", "badhandsv5-neg", "Subtitles", "word",
-	"((logo))", "watermark", "(3d, photo, hyperrealistic, rough sketch:1.1)",
-	"(derpibooru_p_low)", "furry", "source furry", "source comic", "dark skin", "monochrome", "text", "signature",
-	"soft focus", "deformed face", "bad proportions", "distorted face",
-	"ugly", "mutated face", "poorly drawn face",
-	"low quality", "worst quality", "deformed",
-	"distorted", "(extra limbs:1.3)", "(mutated hands:1.4)",
-	"fused fingers", "(cloned face:1.2)", "(multiple people:1.5)",
-	"overlapping figures", "merged bodies", "bad anatomy",
-	"malformed limbs", "extra arms", "out of focus", "blurry",
-	"(crowd:1.3)", "(congested:1.2)", "no merged poses",
-	"distinct postures", "blurry", "lowres", "jpeg artifacts",
-	"watermark", "extra legs", "(asymmetrical legs:1.3)",
-	"blurry legs", "fused thighs", "(disconnected joints:1.2)",
+	"EasyNegative,badhandv4",
+	"mixed poses,shadow,Subtitles,word,oversaturated",
+	"vibrant colors,neon colors,high saturation,garish,logo,watermark",
+	"(3d, photo, hyperrealistic, rough sketch:1.1),(derpibooru_p_low)",
+	"extra digit,extra fingers,extra limbs,extra arms,extra legs,extra digit,extra arms,extra leg,extra foot",
+	"source comic,monochrome,text,signature,soft focus,bad proportions",
+	"deformed face,distorted face,ugly,mutated face,poorly drawn face,cloned face",
+	"low quality,worst quality,deformed",
+	"distorted,merged bodies,(bad anatomy:1.5)",
+	"(malformed limbs:1.3),blurry,distinct postures",
+	"blurry,lowres,jpeg artifacts,(disconnected thighs:1.2)",
+	"fused thighs,(disconnected joints:1.2)",
+	"cross-eye", "render", "realistic",
 }
 
 var GlobalTag_Special_NoBackground []string = []string{}
+
+var GlobalTag_Special_Perspective = []string{
+	"from above", "from below", "from side", "from behind",
+	"dutch angle", "foot focus", "eye focus", "ass focus", "face focus",
+	"close-up", "profile", "portrait", "upper body", "cowboy shot",
+	"full-length portrait", "POV", "birds-eye", "wide shot", "isometric",
+	"dynamic angle", "front view", "upside-down",
+	"looking at viewer", "looking to the side", "looking down", "looking up",
+	"close-up", "portrait", "upper body", "cowboy shot", "full-length shot",
+	"eyes focus", "mouth focus", "face focus", "ass focus", "foot focus",
+	"profile",
+}
 
 var GlobalTag_Special_Number []string = []string{
 	"1girl", "1boy", "2girls", "2boys", "3girls", "3boys",
@@ -67,8 +79,8 @@ var GlobalTag_Action []string = []string{}
 var GlobalTag_Background []string = []string{}
 
 type DeepDanbooruResponses struct {
-	TagName   string                 `json:"tag_name"`
-	TagPath   string                 `json:"tag_path"`
+	KindName  string                 `json:"kind_name"`
+	KindPath  string                 `json:"kind_path"`
 	Results   []DeepDanbooruResponse `json:"results"`
 	TagString string                 `json:"tag_string"`
 	TagNum    int                    `json:"tag_num"`
@@ -181,11 +193,14 @@ func splitTags(tag []byte) map[string]float64 {
 
 var Uncategorized map[string]bool = make(map[string]bool)
 
-func tidyTags(responses *DeepDanbooruResponses, extendTags []string, tagOrder TagOrder) (string, int) {
+func tidyTags(responses *DeepDanbooruResponses, config *ImageConfig) (string, int) {
+	extendTags := config.GetExtendTags()
+	tagOrder := config.GetTagOrder()
+
 	var tags map[string]bool = make(map[string]bool)
 	for _, result := range responses.Results {
 		for _, tag := range result.Tags {
-			if tag.Confidence > 0.35 {
+			if tag.Confidence > 0.5 {
 				tags[tag.Tag] = true
 			}
 		}
@@ -210,7 +225,13 @@ func tidyTags(responses *DeepDanbooruResponses, extendTags []string, tagOrder Ta
 		return matched
 	}
 
+	index := 0
 	for tag, _ := range tags {
+		if config.CheckLimit(index) {
+			utils.Warnf("Limit reached: %d", config.GetLimit())
+			break
+		}
+		index++
 		if checkFunc(GlobalTag_Character, tag) {
 			CharacterTag = append(CharacterTag, tag)
 		} else if checkFunc(GlobalTag_Clothing, tag) {
@@ -238,13 +259,13 @@ func tidyTags(responses *DeepDanbooruResponses, extendTags []string, tagOrder Ta
 		ret = append(ret, ClothingTag...)
 		ret = append(ret, ActionTag...)
 		ret = append(ret, BackgroundTag...)
-		ret = append(ret, OtherTag...)
+		// ret = append(ret, OtherTag...)
 	case TagOrder_Action:
 		ret = append(ret, ActionTag...)
 		ret = append(ret, CharacterTag...)
 		ret = append(ret, ClothingTag...)
 		ret = append(ret, BackgroundTag...)
-		ret = append(ret, OtherTag...)
+		// ret = append(ret, OtherTag...)
 	default:
 		utils.Warnf("Unknown tag order: %s", tagOrder)
 	}
@@ -259,11 +280,15 @@ func SaveTagsFormImage(config *ImageConfig) {
 		DeleteTags(config)
 	}
 
+	var tagName, kindName, keyName, savePath string
 	cmdPath := filepath.Join(config.GetBasePath(), "models")
 	imagePath := filepath.Join(config.GetBasePath(), "images")
-	savePath := ""
 
 	saveResponses := func(path string) {
+		if _, err := os.Stat(path); err == nil {
+			utils.Warnf("File %s already exists, skip", path)
+			return
+		}
 		file, err := os.Create(path)
 		if err != nil {
 			utils.Errorf("Function os.Create error: %v", err)
@@ -312,7 +337,7 @@ func SaveTagsFormImage(config *ImageConfig) {
 		utils.Infof("Number of labels after analysis: %d", len(tags))
 		for tag, score := range tags {
 			tag = strings.Replace(tag, "_", " ", -1)
-			if config.CheckSkipTags(tag) {
+			if config.CheckSkipTags(tag, keyName) {
 				continue
 			}
 			response.Tags = append(response.Tags, struct {
@@ -332,55 +357,66 @@ func SaveTagsFormImage(config *ImageConfig) {
 		return response, true
 	}
 
-	files, _ := filepath.Glob(filepath.Join(imagePath, "*", "*.jpg"))
-	for _, file := range files {
-		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
-		if tagName == config.GetSavePathName() {
+	files1, _ := filepath.Glob(filepath.Join(imagePath, "*", "*", "*.jpg"))
+	files2, _ := filepath.Glob(filepath.Join(imagePath, "*", "*.jpg"))
+	for _, file := range slices.Concat(files1, files2) {
+		if !config.CheckPathFilter(file) {
+			continue
+		}
+
+		tagName = filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
+		parts := strings.Split(tagName, "_")
+
+		if len(parts) > 1 {
+			kindName = parts[0]
+			keyName = parts[1]
+		} else {
+			kindName = ""
+			keyName = ""
+		}
+		if kindName == config.GetSavePathName() {
 			utils.Warnf("Skip tag file: %s", file)
 			continue
 		}
 
 		if config.IsForEach() {
-			savePath = filepath.Join(imagePath, tagName, filepath.Base(file))
-			savePath = strings.TrimSuffix(savePath, ".jpg") + "." + string(config.GetSaveType())
+			savePath = strings.TrimSuffix(file, ".jpg") + "." + string(config.GetSaveType())
 
-			if !config.CheckPathFilter(file) {
-				continue
-			}
-
-			responses.TagName = tagName
-			responses.TagPath = savePath
+			responses.KindName = kindName
+			responses.KindPath = savePath
 
 			if response, ok := buildResponse(savePath, file); ok {
 				responses.Results = []DeepDanbooruResponse{response}
-				tagString, tagNum := tidyTags(responses, config.GetExtendTags(""), config.GetTagOrder())
+				tagString, tagNum := tidyTags(responses, config)
 				utils.Infof("Number of labels after tidying: %d", tagNum)
 				if config.GetShowTags() && tagNum > 0 {
 					utils.Infof("Show tags: %s", tagString)
+				} else {
+					continue
 				}
+
 				responses.TagString = tagString
 				responses.TagNum = tagNum
-
-				saveResponses(responses.TagPath)
+				saveResponses(responses.KindPath)
 			}
 		} else {
-			savePath = filepath.Join(imagePath, tagName, tagName) + "." + string(config.GetSaveType())
+			savePath = filepath.Join(imagePath, kindName, tagName) + "." + string(config.GetSaveType())
 
-			if responses.TagName == "" || responses.TagPath == "" {
-				responses.TagName = tagName
-				responses.TagPath = savePath
-			} else if responses.TagName != tagName && responses.TagString != "" {
-				saveResponses(responses.TagPath)
+			if responses.KindName == "" || responses.KindPath == "" {
+				responses.KindName = kindName
+				responses.KindPath = savePath
+			} else if responses.KindName != kindName && responses.TagString != "" {
+				saveResponses(responses.KindPath)
 				responses = &DeepDanbooruResponses{
-					TagName: tagName,
-					TagPath: savePath,
+					KindName: kindName,
+					KindPath: savePath,
 				}
 			}
 
 			if response, ok := buildResponse(savePath, file); ok {
 				responses.Results = append(responses.Results, response)
 
-				tagString, tagNum := tidyTags(responses, config.GetExtendTags(""), config.GetTagOrder())
+				tagString, tagNum := tidyTags(responses, config)
 				if config.GetShowTags() && tagNum > 0 {
 					utils.Infof("Show tags: %s", tagString)
 				}
@@ -392,7 +428,7 @@ func SaveTagsFormImage(config *ImageConfig) {
 	}
 
 	if responses.TagString != "" {
-		saveResponses(responses.TagPath)
+		saveResponses(responses.KindPath)
 	}
 
 	UncategorizedStr := []string{}
@@ -407,8 +443,10 @@ func SaveTagsFormImage(config *ImageConfig) {
 func DeleteTags(config *ImageConfig) {
 	imagePath := filepath.Join(config.GetBasePath(), "images")
 
-	files, _ := filepath.Glob(filepath.Join(imagePath, "*", "*.txt"))
-	for _, file := range files {
+	files1, _ := filepath.Glob(filepath.Join(imagePath, "*", "*", "*.txt"))
+	files2, _ := filepath.Glob(filepath.Join(imagePath, "*", "*.txt"))
+
+	for _, file := range slices.Concat(files1, files2) {
 		tagName := filepath.Base(strings.TrimSuffix(file, filepath.Base(file)))
 		if tagName == config.GetSavePathName() {
 			utils.Warnf("Skip tag file: %s", file)

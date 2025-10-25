@@ -54,10 +54,10 @@ func TrainModel(config *TrainConfig) {
 }
 
 func buildTrainingSet(config *TrainConfig) bool {
+	targetTag := ""
 	for _, c := range config.GetTagConfigs() {
 		srcDir := c.GetTagSrcPath()
-		destDir := filepath.Join(config.GetInputDir(), fmt.Sprintf("%d_%s", c.GetTimes(), c.GetTagName()))
-
+		destDir := ""
 		utils.Infof("Start setting the %s training set", c.GetTagName())
 
 		copyImage := func(src, dst string) error {
@@ -88,7 +88,7 @@ func buildTrainingSet(config *TrainConfig) bool {
 			}
 			defer dstFile.Close()
 
-			_, err = dstFile.WriteString(c.GetTagName() + "," + string(fileData))
+			_, err = dstFile.WriteString(targetTag + "," + string(fileData))
 			return err
 		}
 
@@ -99,11 +99,12 @@ func buildTrainingSet(config *TrainConfig) bool {
 			}
 			if !info.IsDir() {
 				if config.CheckLimit(index) {
+					utils.Warnf("Limit reached: %d", config.GetLimit())
 					return nil
 				}
 
 				ext := strings.ToLower(filepath.Ext(path))
-				relPath, _ := filepath.Rel(srcDir, path)
+				relPath := filepath.Base(path)
 				destPath := filepath.Join(destDir, relPath)
 				if err := os.MkdirAll(filepath.Dir(destPath), os.ModePerm); err != nil {
 					utils.Errorf("Function os.MkdirAll error: %v", err)
@@ -124,6 +125,15 @@ func buildTrainingSet(config *TrainConfig) bool {
 						return err
 					}
 				}
+			} else {
+				parts := strings.Split(info.Name(), "_")
+				if len(parts) > 1 {
+					destDir = filepath.Join(config.GetInputDir(), fmt.Sprintf("%d_%s", c.GetTime(parts[1]), parts[1]))
+					targetTag = parts[1]
+				} else {
+					targetTag = ""
+				}
+
 			}
 			return nil
 		})
